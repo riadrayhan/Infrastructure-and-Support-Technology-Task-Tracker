@@ -157,7 +157,8 @@ const Presenter={
   box.querySelectorAll('[data-pw]').forEach(b=>b.onclick=async()=>{const pw=prompt('New password for '+b.dataset.pw+' (min 4 characters)');if(pw==null)return;if(pw.length<4){View.toast('Too short');return}wr(async()=>Model.updateUser(b.dataset.pw,{pw:await Model.hash(pw)}),'Password reset ✓')});
   box.querySelectorAll('[data-ap]').forEach(b=>b.onclick=()=>{const r=Model.reqs.find(x=>x.id===b.dataset.ap);if(!r)return;const role=box.querySelector('[data-pr="'+r.id+'"]').value,email=Model.uid(box.querySelector('[data-pe="'+r.id+'"]').value)||('id-'+r.id);
    wr(async()=>{await Model.saveUser({email,name:r.name||email,role,id:r.id,at:today10(),by:me.email});await Model.store.remove('requests',r.id)},'Approved as '+ROLE_LBL[role])});
-  box.querySelectorAll('[data-rj]').forEach(b=>b.onclick=()=>wr(()=>Model.store.remove('requests',b.dataset.rj),'Request removed'))},
+  box.querySelectorAll('[data-rj]').forEach(b=>b.onclick=()=>wr(()=>Model.store.remove('requests',b.dataset.rj),'Request removed'));
+  const dl=box.querySelector('#u_dl');if(dl)dl.onclick=()=>{Exporter.saveText('users.js',View.usersFile(Model.users));View.toast('users.js downloaded – replace config/users.js in the repository')}},
 
  /* --- status line --- */
  syncStatus(err){

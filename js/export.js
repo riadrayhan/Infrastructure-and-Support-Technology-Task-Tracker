@@ -17,6 +17,9 @@ const Exporter={
  slug(s){return String(s).replace(/[^\w]+/g,'-').replace(/^-|-$/g,'')},
  clean(v){return String(v==null?'':v).replace(/[\u{1F000}-\u{1FFFF}☀-➿️]/gu,'').trim()},
 
+ /* ---------- small text file (used for config/users.js) ---------- */
+ saveText(name,text,type='text/javascript'){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)},
+
  /* ---------- Excel (.xlsx): one sheet per section ---------- */
  async excel(doc){
   await this.libs('xlsx');

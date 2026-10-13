@@ -39,16 +39,19 @@ class CloudStore{
 }
 /* LocalStore: browser storage fallback – works when the page is opened outside claude.ai */
 class LocalStore{
- constructor(){this.kind='local';this.key='tracker.data.v1';this.subs={};this.data=this._load();
+ constructor(){this.kind='local';this.key='tracker.data.v1';this.subs={};this.data=this._load();this._seed();
   window.addEventListener('storage',e=>{if(e.key===this.key){this.data=this._load();Object.keys(this.subs).forEach(c=>this._emit(c))}})}
  _load(){try{let raw=localStorage.getItem(this.key);if(!raw){raw=localStorage.getItem('mftech.tracker.v1');if(raw)localStorage.setItem(this.key,raw)}return JSON.parse(raw)||{}}catch(e){return{}}}
  _save(){try{localStorage.setItem(this.key,JSON.stringify(this.data))}catch(e){}}
+ /* accounts from config/users.js exist on every device; a local record with the same email wins, and a seed user removed here stays removed here */
+ _seed(){const seed=window.SEED_USERS||[];if(!seed.length)return;const u=this.data.users=this.data.users||{},gone=this.data.gone||{};let n=0;
+  seed.forEach(x=>{if(!x||!x.email)return;const e=String(x.email).trim().toLowerCase(),id=e.replace(/[^a-z0-9]+/g,'_');if(!u[id]&&!gone[id]){u[id]={...x,email:e};n++}});if(n)this._save()}
  _coll(c){return this.data[c]=this.data[c]||{}}
  _emit(c){(this.subs[c]||[]).forEach(f=>f(Object.values(this._coll(c))))}
  watch(c,cb){(this.subs[c]=this.subs[c]||[]).push(cb);cb(Object.values(this._coll(c)));return()=>{}}
- async set(c,id,o){this._coll(c)[id]=o;this._save();this._emit(c)}
+ async set(c,id,o){this._coll(c)[id]=o;if(c==='users'&&this.data.gone)delete this.data.gone[id];this._save();this._emit(c)}
  async update(c,id,o){const d=this._coll(c)[id];if(!d)throw new Error('not-found');Object.assign(d,o);this._save();this._emit(c)}
- async remove(c,id){delete this._coll(c)[id];this._save();this._emit(c)}
+ async remove(c,id){delete this._coll(c)[id];if(c==='users'){(this.data.gone=this.data.gone||{})[id]=true}this._save();this._emit(c)}
 }
 
 const Model={

@@ -31,7 +31,13 @@ Everything needed is in the repository, including Bootstrap and the export libra
 | `css/style.css` | brand theming, themes and animation on top of Bootstrap |
 | `vendor/` | Bootstrap 5.3.3, SheetJS, jsPDF, jsPDF-AutoTable |
 
-## First run
+## Accounts
 
-The first person to open the tracker creates the Super admin account (name, email, password).
-The Super admin then adds colleagues from the **Users** button and assigns their roles.
+Sign-in accounts are shipped in `config/users.js`, so every device shows the same sign-in page.
+The default super admin is `admin@tracker.com` with password `Admin@1234` – change it after the first sign-in.
+
+The Super admin adds colleagues from the **Users** button and assigns their roles. On static hosting such as GitHub Pages
+those changes live in that browser only until published: click **Download users.js** in the Users dialog, replace
+`config/users.js` in the repository with the downloaded file, and push. Every device then gets the updated accounts.
+
+If `config/users.js` is empty, the first visitor is asked to create the Super admin instead.
