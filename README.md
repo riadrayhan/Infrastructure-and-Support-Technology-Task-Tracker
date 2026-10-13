@@ -5,8 +5,8 @@ Plain HTML, CSS and JavaScript on Bootstrap 5.3 – no build step, no server req
 
 ## Run it
 
-* Open `Task and Project Tracker.html` directly, or
-* serve the folder (for example `python -m http.server 8000`) and open `http://localhost:8000/` – `index.html` forwards to the tracker.
+* Open `index.html` directly, or
+* serve the folder (for example `python -m http.server 8000`) and open `http://localhost:8000/`.
 
 Everything needed is in the repository, including Bootstrap and the export libraries in `vendor/`, so it also works offline.
 

@@ -200,4 +200,4 @@ const Presenter={
    Model.watchUsers(()=>this.localGate());
   }}
 };
-Presenter.boot();
+window.__appReady=true;Presenter.boot();
