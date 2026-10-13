@@ -12,7 +12,7 @@ const DEF={Project:'has a timeline and completion %',Drive:'continuous – every
 const LBL={Project:'Project',Drive:'Recurring',Task:'Task'},LBLS={Project:'Projects',Drive:'Recurring',Task:'Tasks'};
 const PAGES={Project:{tab:'projects',ic:'📁',c:'#2563eb'},Drive:{tab:'recurring',ic:'🔁',c:'#0891b2'}};
 const IC={Total:'📊',Ongoing:'⚡','On Hold':'⏸️',Listed:'📝',Closed:'🔒',Done:'✅',Overdue:'⚠️'};
-const SHARE_URL='https://claude.ai/artifact/4gAtoEYCjnWYKVEw7WrPYn';
+const SHARE_URL='https://riadrayhan.github.io/Infrastructure-and-Support-Technology-Task-Tracker/';
 
 /* ---- roles ----
    superadmin : everything + creates users and assigns roles (the only role that can)
