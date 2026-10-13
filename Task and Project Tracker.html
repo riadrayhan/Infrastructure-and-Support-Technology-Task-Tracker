@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Task and Project Tracker</title>
+<script>/* apply the saved theme before first paint: light | dark | ocean */
+(function(){var t='';try{t=localStorage.getItem('tracker.theme')||localStorage.getItem('mftech.theme')||''}catch(e){}if(!/^(light|dark|ocean)$/.test(t))t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';var h=document.documentElement;h.setAttribute('data-theme',t);h.setAttribute('data-bs-theme',t==='dark'?'dark':'light')})();</script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<!-- Bootstrap 5.3.3 is served from the project's vendor folder so the page also works offline -->
+<link rel="stylesheet" href="vendor/bootstrap.min.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="hero d-flex flex-wrap align-items-center justify-content-between gap-3 px-4 py-3">
+  <div class="hero-fx"></div>
+  <div class="d-flex flex-wrap align-items-center gap-3">
+    <div class="logo"><img src="assets/logo.png" alt="BRAC"></div>
+    <div>
+      <h1 class="mb-1">Infrastructure &amp; Support | Technology | Microfinance <br><span>Task and Project Tracker</span></h1>
+      <div class="live" id="lv"><i></i><span id="snap">Connecting…</span></div>
+    </div>
+  </div>
+  <div class="d-flex flex-wrap align-items-center gap-2">
+    <div id="who" class="who d-none"></div>
+    <button class="btn btn-glass d-none" id="us" data-a="users" data-bs-toggle="tooltip" title="Manage users and roles (super admin)">👥 Users</button>
+    <button class="btn btn-glass" id="sh" data-a="share" data-bs-toggle="tooltip" title="Copy the page link">🔗 Share</button>
+    <div class="dropdown">
+      <button class="btn btn-glass dropdown-toggle" id="th" data-bs-toggle="dropdown" aria-expanded="false" title="Theme">◐ Theme</button>
+      <ul class="dropdown-menu dropdown-menu-end shadow" id="thm"></ul>
+    </div>
+    <button class="btn btn-glass d-none" id="so" data-a="signout" data-bs-toggle="tooltip" title="Sign out of this device">⎋ Sign out</button>
+  </div>
+</header>
+
+<ul class="nav nav-pills flex-nowrap overflow-auto gap-1 container-xxl px-3 px-md-4 pt-3" id="nav"></ul>
+<main class="container-xxl px-3 px-md-4 pb-5" id="v"></main>
+
+<div class="toast-container position-fixed bottom-0 start-50 translate-middle-x p-3" id="toasts"></div>
+
+<script src="vendor/bootstrap.bundle.min.js"></script>
+<script src="js/model.js"></script>
+<script src="js/view.js"></script>
+<script src="js/export.js"></script>
+<script src="js/presenter.js"></script>
+</body>
+</html>
