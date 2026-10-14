@@ -49,8 +49,12 @@ window.addEventListener('error',function(e){if(window.__appReady)return;var v=do
 <script src="js/model.js?v=3"></script>
 <script src="js/view.js?v=3"></script>
 <script src="js/export.js?v=3"></script>
-<!-- talks to the Node.js backend in server/ when one is running; harmless when there is none -->
-<script src="js/api.js?v=3"></script>
+<!-- Optional backends. The page works with neither, with either, or with both present.
+     Google Sheets: uncomment the next line and paste your Apps Script /exec URL.
+<script>window.GAS_URL='https://script.google.com/macros/s/PASTE_YOUR_ID/exec';</script>  -->
+<script src="js/gsheet.js?v=4"></script>
+<!-- Node.js server in server/ – used automatically when it answers at /api/health -->
+<script src="js/api.js?v=4"></script>
 <script src="js/presenter.js?v=3"></script>
 </body>
 </html>

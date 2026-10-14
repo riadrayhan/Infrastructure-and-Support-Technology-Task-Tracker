@@ -210,10 +210,13 @@ const Presenter={
  async boot(){
   this.bindEvents();View.who(null,false);this.go('overview');
 
-  /* 1. a Node.js backend answering at /api/health wins: shared data and server-enforced roles */
-  const health=(typeof ApiStore!=='undefined')?await ApiStore.probe():null;
-  if(health){
-   const store=new ApiStore();Model.store=store;
+  /* 1. a backend wins when one answers: shared data and server-enforced roles.
+        Either a Google Sheet (window.GAS_URL) or the Node.js server at /api/health. */
+  let store=null,health=null;
+  if(window.GAS_URL&&typeof GasStore!=='undefined'){const g=new GasStore();health=await g.probe();if(health)store=g}
+  if(!store&&typeof ApiStore!=='undefined'){health=await ApiStore.probe();if(health)store=new ApiStore()}
+  if(store&&health){
+   Model.store=store;
    store.onAuthLost=()=>{if(Model.session){Model.session=null;View.who(null,true);View.toast('Your session ended – please sign in again')}this.setGate('login')};
    store.onNotice=msg=>View.toast(msg);
    store.onError=e=>{if(e&&e.status===0)View.status('Server unreachable – retrying…',false)};
