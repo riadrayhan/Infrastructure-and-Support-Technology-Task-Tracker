@@ -29,6 +29,7 @@ const View={
    const scan=()=>document.querySelectorAll('.a-up:not(.in):not([data-io])').forEach(el=>{el.dataset.io=1;io.observe(el)});
    new MutationObserver(scan).observe(document.body,{childList:true,subtree:true});scan()}
   else root.classList.add('no-io');
+  setInterval(()=>document.querySelectorAll('.a-up:not(.in)').forEach(el=>el.classList.add('in')),1200);
   document.addEventListener('pointerdown',e=>{const b=e.target.closest('.btn');if(!b||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
    const r=b.getBoundingClientRect(),d=Math.max(r.width,r.height),s=document.createElement('span');s.className='ripple';
    s.style.cssText=`width:${d}px;height:${d}px;left:${e.clientX-r.left-d/2}px;top:${e.clientY-r.top-d/2}px`;b.appendChild(s);setTimeout(()=>s.remove(),650)});
