@@ -95,19 +95,32 @@ const Presenter={
 
  /* ======================= sign-in, session and roles ======================= */
  isLocal(){return Model.store&&Model.store.kind==='local'},
+ isApi(){return Model.store&&Model.store.kind==='api'},
+ /* both the browser-only mode and the Node.js backend sign people in with a password */
+ usesPasswords(){return this.isLocal()||this.isApi()},
  setGate(kind,msg){this.gate={kind,msg:msg||''};this.draw()},
  signIn(u,remember){Model.session={email:u.email,name:u.name,role:u.role,id:u.id||'',owner:!!u.owner};
   if(remember&&this.isLocal())try{localStorage.setItem('tracker.session',u.email)}catch(e){}
-  Model.start(e=>this.syncStatus(e));this.syncStatus();View.who(Model.session,this.isLocal());this.tab='overview';this.draw()},
- signOut(){Model.session=null;try{localStorage.removeItem('tracker.session')}catch(e){}View.who(null,this.isLocal());this.setGate('login')},
+  Model.start(e=>this.syncStatus(e));this.syncStatus();View.who(Model.session,this.usesPasswords());this.tab='overview';this.draw()},
+ async signOut(){if(this.isApi()){try{await Model.store.logout()}catch(e){}}
+  Model.session=null;try{localStorage.removeItem('tracker.session')}catch(e){}View.who(null,this.usesPasswords());this.setGate('login')},
  /* wire the gate screens (setup / login) after View.gate() rendered them */
  bindGate(){const k=this.gate.kind,b=$('#g_btn');if(!b)return;
   const v=i=>($(i)||{value:''}).value.trim();
   if(k==='setup')b.onclick=async()=>{const name=v('#g_name'),email=Model.uid(v('#g_email')),pw=v('#g_pw'),pw2=v('#g_pw2');
    if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){View.toast('Enter a name and a valid email');return}
    if(pw.length<4){View.toast('Password must be at least 4 characters');return}if(pw!==pw2){View.toast('Passwords do not match');return}
-   b.disabled=true;try{const u={email,name,role:'superadmin',pw:await Model.hash(pw),at:today10(),by:'setup'};await Model.saveUser(u);View.toast('Super admin account created ✓');this.signIn(u,true)}catch(e){b.disabled=false;View.toast('Could not save: '+(e.message||e))}};
-  if(k==='login')b.onclick=async()=>{const email=Model.uid(v('#g_email')),pw=v('#g_pw'),u=Model.findUser(email);
+   b.disabled=true;
+   try{
+    if(this.isApi()){const s=await Model.store.setup(name,email,pw);View.toast('Super admin account created ✓');this.signIn(s.user,false);await Model.store.refreshAll();return}
+    const u={email,name,role:'superadmin',pw:await Model.hash(pw),at:today10(),by:'setup'};await Model.saveUser(u);View.toast('Super admin account created ✓');this.signIn(u,true)
+   }catch(e){b.disabled=false;View.toast('Could not save: '+(e.message||e))}};
+  if(k==='login')b.onclick=async()=>{const email=Model.uid(v('#g_email')),pw=v('#g_pw');
+   if(this.isApi()){b.disabled=true;
+    try{const s=await Model.store.login(email,pw);this.signIn(s.user,false);await Model.store.refreshAll()}
+    catch(e){b.disabled=false;View.toast((e&&e.message)||'Email or password is not correct')}
+    return}
+   const u=Model.findUser(email);
    if(!u||u.pw!==await Model.hash(pw)){View.toast('Email or password is not correct');return}
    this.signIn(u,$('#g_rem')?$('#g_rem').checked:true)};
   const f=$('#g_pw')||$('#g_email');if(f)f.onkeydown=e=>{if(e.key==='Enter')b.click()}},
@@ -121,6 +134,13 @@ const Presenter={
    if(this.USERSM&&this.USERSM.isConnected)this.renderUsers(this.USERSM);return}
   let saved='';try{saved=localStorage.getItem('tracker.session')||''}catch(e){}
   const u=saved&&Model.findUser(saved);if(u){this.signIn(u,false);return}
+  this.setGate('login')},
+
+ /* backend mode: the Node.js server decides who you are and what your role is */
+ async apiGate(health){const store=Model.store;
+  let payload=null;try{payload=await store.me()}catch(e){}
+  if(payload&&payload.user){this.signIn(payload.user,false);await store.refreshAll();return}
+  if((payload&&payload.setupRequired)||(health&&health.setupRequired)){this.setGate('setup');return}
   this.setGate('login')},
 
  /* cloud mode: identity comes from the claude.ai account; the artifact owner is always super admin */
@@ -139,22 +159,23 @@ const Presenter={
 
  /* ======================= user management (super admin only) ======================= */
  openUsers(){if(!Model.can('manage')){View.toast('Only the super admin can manage users');return}
-  const m=View.users(this.isLocal());this.USERSM=m;this.renderUsers(m)},
- renderUsers(m){const box=m.querySelector('#ub');if(!box)return;const local=this.isLocal(),me=Model.session;
+  const m=View.users(this.usesPasswords());this.USERSM=m;this.renderUsers(m)},
+ renderUsers(m){const box=m.querySelector('#ub');if(!box)return;const local=this.isLocal(),api=this.isApi(),pwMode=this.usesPasswords(),me=Model.session;
   const list=[...Model.users].sort((a,b)=>ROLES.indexOf(a.role)-ROLES.indexOf(b.role)||a.name.localeCompare(b.name));
   const pend=local?[]:Model.reqs.filter(r=>!(r.email&&Model.findUser(r.email))&&!Model.findUserById(r.id));
-  View.usersPanel(box,list,pend,me,local);
+  View.usersPanel(box,list,pend,me,pwMode,local);
   const wr=async(f,msg)=>{try{await f();View.toast(msg)}catch(e){View.toast('Could not save: '+(e.message||e))}};
   const v=i=>(box.querySelector(i)||{value:''}).value.trim();
   box.querySelector('#u_add').onclick=async()=>{const name=v('#u_name'),email=Model.uid(v('#u_email')),role=v('#u_role'),pw=v('#u_pw');
    if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){View.toast('Enter a name and a valid email');return}
    if(Model.findUser(email)){View.toast('This email already has an account');return}
-   if(local&&pw.length<4){View.toast('Set a password of at least 4 characters');return}
-   const u={email,name,role,at:today10(),by:me.email};if(local)u.pw=await Model.hash(pw);
+   if(pwMode&&pw.length<4){View.toast('Set a password of at least 4 characters');return}
+   const u={email,name,role,at:today10(),by:me.email};
+   if(api)u.password=pw;else if(local)u.pw=await Model.hash(pw);
    wr(()=>Model.saveUser(u),name+' added as '+ROLE_LBL[role])};
   box.querySelectorAll('[data-r]').forEach(s=>s.onchange=()=>wr(()=>Model.updateUser(s.dataset.r,{role:s.value}),'Role updated → '+ROLE_LBL[s.value]));
   box.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{const u=Model.findUser(b.dataset.x);if(u&&confirm('Remove '+u.name+' ('+u.email+')?'))wr(()=>Model.removeUser(u.email),'Removed')});
-  box.querySelectorAll('[data-pw]').forEach(b=>b.onclick=async()=>{const pw=prompt('New password for '+b.dataset.pw+' (min 4 characters)');if(pw==null)return;if(pw.length<4){View.toast('Too short');return}wr(async()=>Model.updateUser(b.dataset.pw,{pw:await Model.hash(pw)}),'Password reset ✓')});
+  box.querySelectorAll('[data-pw]').forEach(b=>b.onclick=async()=>{const pw=prompt('New password for '+b.dataset.pw+' (min 4 characters)');if(pw==null)return;if(pw.length<4){View.toast('Too short');return}wr(async()=>Model.updateUser(b.dataset.pw,api?{password:pw}:{pw:await Model.hash(pw)}),'Password reset ✓')});
   box.querySelectorAll('[data-ap]').forEach(b=>b.onclick=()=>{const r=Model.reqs.find(x=>x.id===b.dataset.ap);if(!r)return;const role=box.querySelector('[data-pr="'+r.id+'"]').value,email=Model.uid(box.querySelector('[data-pe="'+r.id+'"]').value)||('id-'+r.id);
    wr(async()=>{await Model.saveUser({email,name:r.name||email,role,id:r.id,at:today10(),by:me.email});await Model.store.remove('requests',r.id)},'Approved as '+ROLE_LBL[role])});
   box.querySelectorAll('[data-rj]').forEach(b=>b.onclick=()=>wr(()=>Model.store.remove('requests',b.dataset.rj),'Request removed'));
@@ -165,6 +186,7 @@ const Presenter={
   if(err){View.status('Sync error: '+(err.code||''),false);return}
   const n=Model.items.length;
   if(this.isLocal()){View.status('Saved on this device · '+n+' items',false);return}
+  if(this.isApi()){View.status('Live · '+n+' items synced',true);return}
   View.status((Model.platWrite?'Live · ':'Live · read-only · ')+n+' items synced',true)},
 
  /* --- theme: light | dark | ocean (remembered in this browser) --- */
@@ -187,6 +209,20 @@ const Presenter={
  /* --- boot: pick the storage backend, then gate on identity --- */
  async boot(){
   this.bindEvents();View.who(null,false);this.go('overview');
+
+  /* 1. a Node.js backend answering at /api/health wins: shared data and server-enforced roles */
+  const health=(typeof ApiStore!=='undefined')?await ApiStore.probe():null;
+  if(health){
+   const store=new ApiStore();Model.store=store;
+   store.onAuthLost=()=>{if(Model.session){Model.session=null;View.who(null,true);View.toast('Your session ended – please sign in again')}this.setGate('login')};
+   store.onNotice=msg=>View.toast(msg);
+   store.onError=e=>{if(e&&e.status===0)View.status('Server unreachable – retrying…',false)};
+   const redraw=()=>{if(this.USERSM&&this.USERSM.isConnected)this.renderUsers(this.USERSM)};
+   Model.watchUsers(redraw);Model.watchReqs(redraw);
+   await this.apiGate(health);
+   return}
+
+  /* 2. otherwise: the claude.ai shared database, or this browser's own storage */
   let db=null;
   try{if(window.claude){db=await claude.use('db');Model.user=await claude.use('user')}}catch(e){db=null}
   if(db){
