@@ -25,12 +25,32 @@ Open <https://sheets.new> and name it, for example *Task Tracker Database*.
 
 **2. Add the script**
 
-In that sheet choose **Extensions → Apps Script**. Delete the sample `function myFunction() {}`,
-paste the whole of [`Code.gs`](Code.gs), and save with Ctrl+S.
+In that sheet choose **Extensions → Apps Script**.
+
+Open this link, press Ctrl+A then Ctrl+C to copy the whole file:
+
+<https://raw.githubusercontent.com/sajalkumar-byte/Infrastructure-and-Support-Technology-Task-Tracker/main/google-apps-script/Code.gs>
+
+Back in the editor, click inside `Code.gs`, press Ctrl+A to select everything that is there,
+then Ctrl+V to replace it. Save with Ctrl+S.
+
+> **Paste the right file.** It must be `google-apps-script/Code.gs`, nothing from the `js` folder.
+> The correct file is about a thousand lines, its first line of code is `var SHEETS = {`, and it
+> never contains the word `window` outside a comment. If the editor's file list on the left shows
+> more than one file, delete the others. Pasting `js/gsheet.js` by mistake gives
+> `ReferenceError: window is not defined`, because that file is browser code.
 
 **3. Run the setup once**
 
 In the Apps Script toolbar pick the function **`setupTracker`** and press **Run**.
+
+Two optional extras you can run the same way afterwards:
+
+| Function | What it does |
+|---|---|
+| `addSampleData` | writes thirteen realistic projects, recurring items and tasks so the dashboard is not empty |
+| `addSampleUsers` | creates one account per role for testing: `admin2@tracker.com` / `Admin2@1234`, `superuser@tracker.com` / `Super@1234`, `viewer@tracker.com` / `Viewer@1234` |
+| `checkDeployment` | checks the installation and prints what is wrong, if anything |
 
 Google asks for permission the first time. Choose your account, then *Advanced → Go to
 (project name)* → *Allow*. The warning appears because the script is yours and unverified; it only

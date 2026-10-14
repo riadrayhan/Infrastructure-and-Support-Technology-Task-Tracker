@@ -332,3 +332,66 @@ test('unknown actions are reported, not silently ignored', () => {
   const { call, tokens } = freshWorld();
   assert.equal(call('dropAllTables', { token: tokens.superadmin }).error.code, 'not_found');
 });
+
+/* ---------------------------------------------------------------- sample data helpers */
+test('addSampleData fills the sheet and is safe to run twice', () => {
+  const { call, sandbox, tokens } = freshWorld();
+
+  const added = sandbox.addSampleData();
+  assert.equal(added, 13, 'all thirteen sample rows should be written');
+
+  const items = call('listItems', { token: tokens.viewer }).items;
+  assert.equal(items.length, 13);
+  assert.equal(items.filter(i => i.type === 'Project').length, 5);
+  assert.equal(items.filter(i => i.type === 'Drive').length, 3);
+  assert.equal(items.filter(i => i.type === 'Task').length, 5);
+
+  /* ids are numbered per type and the fields the page needs are populated */
+  const dr = items.find(i => i.title === 'Core banking DR site');
+  assert.match(dr.id, /^P-\d+$/);
+  assert.equal(dr.s, 'Ongoing');
+  assert.equal(dr.pri, 'High');
+  assert.equal(dr.f1, 'Rafiqul Islam');
+  assert.ok(dr.ms.includes('\n'), 'milestones are stored one per line');
+
+  /* the dashboard figures add up */
+  const stats = call('stats', { token: tokens.viewer });
+  assert.equal(stats.total, 13);
+  assert.equal(stats.byType.Project.total, 5);
+  assert.ok(stats.people.includes('Rafiqul Islam'));
+
+  /* running it again adds nothing */
+  assert.equal(sandbox.addSampleData(), 0);
+  assert.equal(call('listItems', { token: tokens.viewer }).items.length, 13);
+});
+
+test('addSampleUsers creates one working account per role', () => {
+  const { call, sandbox } = freshWorld();
+  assert.equal(sandbox.addSampleUsers(), 3);
+
+  const checks = [
+    ['admin2@tracker.com', 'Admin2@1234', 'admin'],
+    ['superuser@tracker.com', 'Super@1234', 'superuser'],
+    ['viewer@tracker.com', 'Viewer@1234', 'viewer'],
+  ];
+  for (const [email, password, role] of checks) {
+    const session = call('login', { email, password });
+    assert.ok(session.token, `${email} should be able to sign in`);
+    assert.equal(session.user.role, role);
+  }
+  assert.equal(sandbox.addSampleUsers(), 0, 'running it again changes nothing');
+});
+
+test('checkDeployment reports a healthy install and spots a broken one', () => {
+  const { sandbox } = freshWorld();
+  /* the array comes from the sandbox's own realm, so compare its contents, not its identity */
+  assert.equal(sandbox.checkDeployment().length, 0, 'a fresh install has no problems');
+
+  /* a password typed straight into the sheet instead of being hashed is caught */
+  const users = sandbox.readTable_('users');
+  users[1].password = 'plaintext123';
+  sandbox.writeTable_('users', users);
+  const problems = sandbox.checkDeployment();
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /not hashed/);
+});

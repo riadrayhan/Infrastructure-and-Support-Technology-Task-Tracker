@@ -113,6 +113,114 @@ function setupTracker() {
   return 'Setup complete – see the execution log.';
 }
 
+/**
+ * Fill the sheet with realistic sample rows so you can see the tracker working straight away.
+ * Run it from the editor (choose addSampleData, press Run). Safe to run twice: a row whose title
+ * is already there is skipped. Delete them from the Items tab whenever you want them gone.
+ */
+function addSampleData() {
+  var samples = [
+    /* type, title, status, priority, focal-1, focal-2, start, end, stakeholder, milestones */
+    ['Project', 'Core banking DR site', 'Ongoing', 'High', 'Rafiqul Islam', 'Nadia Rahman', '2026-07-01', '2026-12-31', 'Operations', 'Requirement analysis - Done\nSite survey - Done\nHardware delivery - Ongoing\nFailover test - Listed'],
+    ['Project', 'Branch Wi-Fi rollout (120 branches)', 'Ongoing', 'Mid', 'Nadia Rahman', '', '2026-08-15', '2027-01-31', 'Branch Operations', 'Vendor selection - Done\nPilot 10 branches - Done\nPhase 1 rollout - Ongoing'],
+    ['Project', 'Ticketing system upgrade', 'On Hold', 'Mid', 'Rafiqul Islam', 'Sohel Mahmud', '2026-06-01', '2026-09-30', 'IT Service Desk', 'Licence renewal - Done\nData migration - on hold pending budget'],
+    ['Project', 'Data centre cooling upgrade', 'Done', 'High', 'Sohel Mahmud', '', '2026-02-01', '2026-05-30', 'Facilities', 'Quotation - Done\nInstallation - Done\nLoad test - Done'],
+    ['Project', 'Biometric attendance rollout', 'Listed', 'Low', 'Nadia Rahman', '', '2027-01-05', '2027-06-30', 'Human Resources', ''],
+
+    ['Drive', 'Monthly backup restore test', 'Ongoing', 'High', 'Sohel Mahmud', 'Rafiqul Islam', '2026-01-01', '', 'Risk and Compliance', 'Restore drill on the first Sunday of each month'],
+    ['Drive', 'Weekly server patching', 'Ongoing', 'Mid', 'Rafiqul Islam', '', '2026-01-01', '', 'Infrastructure', 'Windows and Linux fleet, Thursday night window'],
+    ['Drive', 'Quarterly disaster recovery drill', 'Ongoing', 'High', 'Nadia Rahman', 'Sohel Mahmud', '2026-01-01', '', 'Operations', 'Q1 - Done\nQ2 - Done\nQ3 - Ongoing'],
+
+    ['Task', 'Replace UPS battery - Head Office', 'Ongoing', 'High', 'Sohel Mahmud', '', '2026-10-01', '2026-10-25', 'Facilities', 'Quotation - Done\nFitting scheduled - Ongoing'],
+    ['Task', 'Renew wildcard SSL certificate', 'Done', 'High', 'Rafiqul Islam', '', '2026-09-01', '2026-09-20', 'Security', 'Purchase - Done\nInstall on load balancer - Done'],
+    ['Task', 'Reset VPN tokens for field staff', 'Ongoing', 'Mid', 'Nadia Rahman', '', '2026-10-05', '2026-10-30', 'Field Operations', ''],
+    ['Task', 'Decommission old file server', 'Listed', 'Low', 'Sohel Mahmud', '', '2026-11-01', '2026-11-30', 'Infrastructure', ''],
+    ['Task', 'Audit firewall rules', 'On Hold', 'Mid', 'Rafiqul Islam', 'Nadia Rahman', '2026-08-01', '2026-09-15', 'Security', 'Rule export - Done\nReview with vendor - on hold']
+  ];
+
+  var existing = readTable_('items');
+  var titles = {};
+  existing.forEach(function (row) { titles[String(row.title)] = true; });
+
+  var added = 0;
+  samples.forEach(function (sample) {
+    if (titles[sample[1]]) return;
+    var record = {
+      id: nextId_(sample[0], existing),
+      type: sample[0], title: sample[1], s: sample[2], pri: sample[3],
+      f1: sample[4], f2: sample[5], sd: sample[6], e: sample[7],
+      sh: sample[8], ms: sample[9], rm: '',
+      createdAt: nowIso_(), createdBy: 'sample data', updatedAt: '', updatedBy: ''
+    };
+    appendRow_('items', record);
+    existing.push(record);
+    added += 1;
+  });
+
+  Logger.log('Added %s sample row(s); %s were already there.', added, samples.length - added);
+  return added;
+}
+
+/**
+ * Create one account per role so all four can be tried immediately.
+ * Run it from the editor. The passwords are printed in the log - change them before real use.
+ */
+function addSampleUsers() {
+  var people = [
+    { email: 'admin2@tracker.com', name: 'Rafiqul Islam', role: 'admin', password: 'Admin2@1234' },
+    { email: 'superuser@tracker.com', name: 'Sohel Mahmud', role: 'superuser', password: 'Super@1234' },
+    { email: 'viewer@tracker.com', name: 'Nadia Rahman', role: 'viewer', password: 'Viewer@1234' }
+  ];
+  var added = 0;
+  people.forEach(function (p) {
+    if (findUser_(p.email)) { Logger.log('%s already exists - skipped.', p.email); return; }
+    appendRow_('users', {
+      email: p.email, name: p.name, role: p.role, password: hashPassword_(p.password),
+      externalId: '', createdAt: nowIso_(), createdBy: 'sample', updatedAt: '', lastLogin: ''
+    });
+    Logger.log('%s  role: %s  password: %s', p.email, p.role, p.password);
+    added += 1;
+  });
+  Logger.log('Added %s account(s). Change these passwords before real use.', added);
+  return added;
+}
+
+/**
+ * Check the installation and say what is wrong, if anything.
+ * Run it from the editor after pasting this file or changing settings.
+ */
+function checkDeployment() {
+  var problems = [];
+  try { spreadsheet_(); } catch (err) { problems.push('No spreadsheet: ' + err.message); }
+
+  Object.keys(SHEETS).forEach(function (key) {
+    if (!spreadsheet_().getSheetByName(SHEETS[key].name)) {
+      problems.push('Missing tab: ' + SHEETS[key].name + ' - run setupTracker');
+    }
+  });
+
+  var users = readTable_('users');
+  if (!users.length) problems.push('No accounts yet - run setupTracker');
+  users.forEach(function (u) {
+    if (String(u.password).indexOf('sha256$') !== 0) {
+      problems.push('The password for ' + u.email + ' is not hashed - reset it from the Users dialog');
+    }
+  });
+
+  Logger.log('health:   %s', JSON.stringify(ACTIONS.health()));
+  Logger.log('accounts: %s     items: %s', users.length, readTable_('items').length);
+
+  if (problems.length) {
+    Logger.log('PROBLEMS FOUND:');
+    problems.forEach(function (p) { Logger.log('  - %s', p); });
+  } else {
+    Logger.log('Everything looks correct.');
+    Logger.log('If the page still cannot reach this script, publish the current code:');
+    Logger.log('Deploy -> Manage deployments -> pencil -> Version: New version -> Deploy.');
+  }
+  return problems;
+}
+
 /** Optional helper: remove expired sessions. Add a time-driven trigger for it if you like. */
 function cleanUpSessions() {
   var rows = readTable_('sessions');
