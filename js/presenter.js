@@ -212,9 +212,13 @@ const Presenter={
 
   /* 1. a backend wins when one answers: shared data and server-enforced roles.
         Either a Google Sheet (window.GAS_URL) or the Node.js server at /api/health. */
-  let store=null,health=null;
-  if(window.GAS_URL&&typeof GasStore!=='undefined'){const g=new GasStore();health=await g.probe();if(health)store=g}
+  let store=null,health=null,gasFailed=null;
+  if(window.GAS_URL&&typeof GasStore!=='undefined'){const g=new GasStore();health=await g.probe();if(health)store=g;else gasFailed=g.lastError}
   if(!store&&typeof ApiStore!=='undefined'){health=await ApiStore.probe();if(health)store=new ApiStore()}
+  /* A configured Google Sheet that does not answer is a mistake worth showing, not hiding:
+     without this the page would quietly fall back to this browser's own storage. */
+  if(!store&&gasFailed){console.error('Google Sheets backend unavailable:',gasFailed);
+   setTimeout(()=>View.toast('Google Sheet backend unavailable – using this device only. '+(gasFailed.message||'')),800)}
   if(store&&health){
    Model.store=store;
    store.onAuthLost=()=>{if(Model.session){Model.session=null;View.who(null,true);View.toast('Your session ended – please sign in again')}this.setGate('login')};

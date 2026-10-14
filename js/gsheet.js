@@ -49,10 +49,14 @@
     }
 
     /* ---------- one call to the script ---------- */
-    async call(action, payload) {
+    async call(action, payload, timeoutMs) {
       if (!this.url) throw GasError(0, 'offline', 'No Google Apps Script URL configured');
       var body = Object.assign({ action: action }, payload || {});
       if (this.token) body.token = this.token;
+
+      /* Give up rather than leave the page on "Connecting…" if the script never answers. */
+      var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      var timer = (controller && timeoutMs) ? setTimeout(function () { controller.abort(); }, timeoutMs) : null;
 
       var res;
       try {
@@ -62,9 +66,14 @@
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           redirect: 'follow',
           body: JSON.stringify(body),
+          signal: controller ? controller.signal : undefined,
         });
       } catch (e) {
-        throw GasError(0, 'offline', 'Cannot reach the Google Sheet backend – check your connection');
+        throw GasError(0, 'offline', (e && e.name === 'AbortError')
+          ? 'The Google Sheet backend did not answer in time'
+          : 'Cannot reach the Google Sheet backend – check your connection');
+      } finally {
+        if (timer) clearTimeout(timer);
       }
 
       var text = await res.text();
@@ -100,7 +109,8 @@
 
     /* ---------- authentication ---------- */
     async probe() {
-      try { return await this.call('health'); } catch (e) { return null; }
+      try { this.lastError = null; return await this.call('health', null, 9000); }
+      catch (e) { this.lastError = e; return null; }
     }
 
     async me() {

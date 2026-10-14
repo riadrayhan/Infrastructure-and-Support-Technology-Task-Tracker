@@ -13,7 +13,7 @@ window.addEventListener('error',function(e){if(window.__appReady)return;var v=do
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 <!-- Bootstrap 5.3.3 is served from the project's vendor folder so the page also works offline -->
 <link rel="stylesheet" href="vendor/bootstrap.min.css">
-<link rel="stylesheet" href="css/style.css?v=3">
+<link rel="stylesheet" href="css/style.css?v=5">
 </head>
 <body>
 <noscript><div style="padding:20px;font-family:system-ui,sans-serif">The tracker needs JavaScript. Please enable it in your browser settings.</div></noscript>
@@ -45,16 +45,16 @@ window.addEventListener('error',function(e){if(window.__appReady)return;var v=do
 <div class="toast-container position-fixed bottom-0 start-50 translate-middle-x p-3" id="toasts"></div>
 
 <script src="vendor/bootstrap.bundle.min.js"></script>
-<script src="config/users.js?v=3"></script>
-<script src="js/model.js?v=3"></script>
-<script src="js/view.js?v=3"></script>
-<script src="js/export.js?v=3"></script>
-<!-- Optional backends. The page works with neither, with either, or with both present.
-     Google Sheets: uncomment the next line and paste your Apps Script /exec URL.
-<script>window.GAS_URL='https://script.google.com/macros/s/PASTE_YOUR_ID/exec';</script>  -->
-<script src="js/gsheet.js?v=4"></script>
+<script src="config/users.js?v=5"></script>
+<script src="js/model.js?v=5"></script>
+<script src="js/view.js?v=5"></script>
+<script src="js/export.js?v=5"></script>
+<!-- Backend: the Google Sheet behind this Apps Script deployment. Remove the line to go back
+     to browser-only storage; the page works either way. -->
+<script>window.GAS_URL='https://script.google.com/macros/s/AKfycbxPCgPYtOUpyYefpOzLcK_u-un1S5wSzyj-khjHHpLTpRPI4JGT17zz4IMyflENVfCn/exec';</script>
+<script src="js/gsheet.js?v=5"></script>
 <!-- Node.js server in server/ – used automatically when it answers at /api/health -->
-<script src="js/api.js?v=4"></script>
-<script src="js/presenter.js?v=3"></script>
+<script src="js/api.js?v=5"></script>
+<script src="js/presenter.js?v=5"></script>
 </body>
 </html>
