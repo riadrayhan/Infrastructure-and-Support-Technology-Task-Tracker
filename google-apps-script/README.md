@@ -17,46 +17,28 @@ the same four roles, and the page works with either without any change to its sc
 
 ---
 
-## Deploy it in five steps
+## Set it up (paste 15 lines, not 1,249)
 
 **1. Make the spreadsheet**
 
 Open <https://sheets.new> and name it, for example *Task Tracker Database*.
 
-**2. Add the script**
+**2. Paste the loader**
 
-In that sheet choose **Extensions → Apps Script**.
+In that sheet choose **Extensions → Apps Script**. Select everything in `Code.gs` and replace it
+with the contents of [`Loader.gs`](Loader.gs) — a short file, about fifty lines. Save with Ctrl+S.
 
-Open this link, press Ctrl+A then Ctrl+C to copy the whole file:
+That file does not contain the tracker. It downloads the real code from this repository and runs
+it, which has two advantages: there is too little to paste for the wrong file to end up there, and
+improvements arrive on their own without anybody pasting again.
 
-<https://raw.githubusercontent.com/sajalkumar-byte/Infrastructure-and-Support-Technology-Task-Tracker/main/google-apps-script/Code.gs>
-
-Back in the editor, click inside `Code.gs`, press Ctrl+A to select everything that is there,
-then Ctrl+V to replace it. Save with Ctrl+S.
-
-> **Paste the right file.** It must be `google-apps-script/Code.gs`, nothing from the `js` folder.
-> The correct file is about a thousand lines, its first line of code is `var SHEETS = {`, and it
-> never contains the word `window` outside a comment. If the editor's file list on the left shows
-> more than one file, delete the others. Pasting `js/gsheet.js` by mistake gives
-> `ReferenceError: window is not defined`, because that file is browser code.
+> If you would rather paste the whole thing, [`Code.gs`](Code.gs) still works exactly as before.
+> It is about 1,250 lines and its first line of code is `var SHEETS = {`.
 
 **3. Run the setup once**
 
-In the Apps Script toolbar pick the function **`setupTracker`** and press **Run**.
-
-Two optional extras you can run the same way afterwards:
-
-| Function | What it does |
-|---|---|
-| `addSampleData` | writes thirteen realistic projects, recurring items and tasks so the dashboard is not empty |
-| `addSampleUsers` | creates one account per role for testing: `admin2@tracker.com` / `Admin2@1234`, `superuser@tracker.com` / `Super@1234`, `viewer@tracker.com` / `Viewer@1234` |
-| `checkDeployment` | checks the installation and prints what is wrong, if anything |
-
-Google asks for permission the first time. Choose your account, then *Advanced → Go to
-(project name)* → *Allow*. The warning appears because the script is yours and unverified; it only
-ever touches this spreadsheet.
-
-The log then shows the sign-in you will use:
+In the Apps Script toolbar pick **`setupTracker`** and press **Run**, then allow the permissions
+(*Advanced → Go to project → Allow*). The log prints the sign-in to use:
 
 ```
 Super admin created.
@@ -64,46 +46,42 @@ Super admin created.
   password: Admin@1234
 ```
 
-Change these before running it by adding Script Properties `SEED_EMAIL`, `SEED_NAME` and
-`SEED_PASSWORD` (Project Settings → Script Properties). Otherwise change the password after your
-first sign-in.
+Optional extras, run the same way:
 
-Your sheet now has six tabs: **Users, Items, Sessions, Requests, Archive, Audit**.
+| Function | What it does |
+|---|---|
+| `addSampleData` | writes thirteen realistic projects, recurring items and tasks |
+| `addSampleUsers` | one account per role for testing |
+| `checkDeployment` | checks the installation and prints what is wrong, if anything |
+| `refreshTrackerCode` | pulls the newest code immediately instead of waiting for the cache |
 
 **4. Publish it as a Web App**
 
-**Deploy → New deployment → ⚙ → Web app**
+**Deploy → New deployment → ⚙ → Web app**, with **Execute as: Me** and
+**Who has access: Anyone**. Copy the `/exec` URL.
 
-| Field | Value |
-|---|---|
-| Description | Tracker API |
-| Execute as | **Me** |
-| Who has access | **Anyone** |
-
-Press **Deploy** and copy the **Web app URL**. It looks like
-`https://script.google.com/macros/s/AKfy...../exec`.
-
-> "Anyone" means anyone who has that URL may *call the script*. It does **not** share your
-> spreadsheet, and the script still refuses everything except health, sign-in and an access
-> request unless a valid session token is sent. Treat the URL as a setting, not as a secret.
+If a deployment already exists, use **Deploy → Manage deployments → ✏ → Version: New version →
+Deploy** instead. The URL stays the same.
 
 **5. Point the page at it**
 
-In [`../index.html`](../index.html) there is a commented-out line just above the scripts. Replace
-it with your URL:
+The URL already sits in [`../index.html`](../index.html). Replace it there if yours is different:
 
 ```html
-<script>window.GAS_URL='https://script.google.com/macros/s/AKfy...../exec';</script>
-<script src="js/gsheet.js?v=4"></script>
+<script>window.GAS_URL='https://script.google.com/macros/s/..../exec';</script>
 ```
 
-Reload the tracker. The sign-in page appears, and from then on everyone who opens the link sees
-the same data.
+Open the `/exec` URL in a browser to check it. It should print `{"ok":true,...}`. An error page
+means the wrong code is in the editor, or step 4's new version was skipped.
 
-### After changing Code.gs
+### Keeping it up to date
 
-Apps Script keeps serving the old version until you redeploy: **Deploy → Manage deployments →
-✏ → Version: New version → Deploy**. The URL stays the same.
+With the loader in place, a change to `Code.gs` in this repository reaches the deployment by
+itself within an hour, or immediately if you run `refreshTrackerCode`. Nothing needs pasting and
+nothing needs redeploying.
+
+If you pasted the whole `Code.gs` instead, Apps Script keeps serving the old version until you
+redeploy: **Deploy → Manage deployments → ✏ → Version: New version → Deploy**.
 
 ---
 

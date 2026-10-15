@@ -121,7 +121,7 @@
 
     /* ---------- authentication ---------- */
     async probe() {
-      try { this.lastError = null; return await this.call('health', null, 9000); }
+      try { this.lastError = null; return await this.call('health', null, 6000); }
       catch (e) { this.lastError = e; return null; }
     }
 
