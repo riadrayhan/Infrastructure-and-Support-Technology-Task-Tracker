@@ -18,7 +18,7 @@ function register(router) {
   router.get('/api/items', async (req, res, ctx) => {
     const me = requireUser(ctx);
     const q = ctx.query;
-    const list = items.list({
+    const list = await items.list({
       type: q.get('type') || '',
       status: q.get('status') || '',
       person: q.get('person') || '',
@@ -30,7 +30,7 @@ function register(router) {
   /* ---- GET /api/items/archive – read-only older tasks ---- */
   router.get('/api/items/archive', async (req, res, ctx) => {
     requireUser(ctx);
-    sendJson(res, 200, { batches: items.listArchive() });
+    sendJson(res, 200, { batches: await items.listArchive() });
   });
 
   /* ---- PUT /api/items/archive/:id – replace an archive batch (admins and above) ---- */
@@ -38,8 +38,8 @@ function register(router) {
     const me = requireUser(ctx);
     permissions.assert(me.role, 'write', 'Project');     // archive upload is an admin-level action
     const body = await readJson(req);
-    const saved = items.putArchive(req.params.id, body.rows);
-    audit.log({ actor: me.email, role: me.role, action: 'archive.put', target: saved.id,
+    const saved = await items.putArchive(req.params.id, body.rows);
+    await audit.log({ actor: me.email, role: me.role, action: 'archive.put', target: saved.id,
                 detail: { rows: saved.rows.length }, ip: clientIp(req) });
     sendJson(res, 200, saved);
   });
@@ -47,7 +47,7 @@ function register(router) {
   /* ---- GET /api/items/:id ---- */
   router.get('/api/items/:id', async (req, res, ctx) => {
     requireUser(ctx);
-    const item = items.byId(req.params.id);
+    const item = await items.byId(req.params.id);
     if (!item) throw notFound('That item no longer exists');
     sendJson(res, 200, item);
   });
@@ -61,8 +61,8 @@ function register(router) {
       throw badRequest(`Type must be one of: ${permissions.TYPES.join(', ')}`, 'bad_type');
     }
     permissions.assert(me.role, 'write', type);          // Superuser: Task only
-    const created = items.create(body, me.email);
-    audit.log({ actor: me.email, role: me.role, action: 'item.create', target: created.id,
+    const created = await items.create(body, me.email);
+    await audit.log({ actor: me.email, role: me.role, action: 'item.create', target: created.id,
                 detail: { type: created.type, title: created.title }, ip: clientIp(req) });
     sendJson(res, 201, created);
   });
@@ -71,14 +71,14 @@ function register(router) {
   router.put('/api/items/:id', async (req, res, ctx) => {
     const me = requireUser(ctx);
     const body = await readJson(req);
-    const existing = items.byId(req.params.id);
+    const existing = await items.byId(req.params.id);
     const type = existing ? existing.type : String(body.type || '');
     if (!permissions.TYPES.includes(type)) {
       throw badRequest(`Type must be one of: ${permissions.TYPES.join(', ')}`, 'bad_type');
     }
     permissions.assert(me.role, 'write', type);
-    const saved = items.put(req.params.id, body, me.email);
-    audit.log({ actor: me.email, role: me.role, action: existing ? 'item.update' : 'item.create',
+    const saved = await items.put(req.params.id, body, me.email);
+    await audit.log({ actor: me.email, role: me.role, action: existing ? 'item.update' : 'item.create',
                 target: saved.id, detail: { type: saved.type, title: saved.title }, ip: clientIp(req) });
     sendJson(res, existing ? 200 : 201, saved);
   });
@@ -86,13 +86,13 @@ function register(router) {
   /* ---- PATCH /api/items/:id – partial edit, including a status change ---- */
   router.patch('/api/items/:id', async (req, res, ctx) => {
     const me = requireUser(ctx);
-    const existing = items.byId(req.params.id);
+    const existing = await items.byId(req.params.id);
     if (!existing) throw notFound('That item no longer exists');
     permissions.assert(me.role, 'write', existing.type); // the stored type decides, not the body
     const body = await readJson(req);
-    const saved = items.update(existing.id, body, me.email);
+    const saved = await items.update(existing.id, body, me.email);
     const changed = Object.keys(body).filter(k => k !== 'type');
-    audit.log({ actor: me.email, role: me.role, action: 'item.update', target: saved.id,
+    await audit.log({ actor: me.email, role: me.role, action: 'item.update', target: saved.id,
                 detail: { fields: changed, status: saved.s }, ip: clientIp(req) });
     sendJson(res, 200, saved);
   });
@@ -100,11 +100,11 @@ function register(router) {
   /* ---- DELETE /api/items/:id ---- */
   router.delete('/api/items/:id', async (req, res, ctx) => {
     const me = requireUser(ctx);
-    const existing = items.byId(req.params.id);
+    const existing = await items.byId(req.params.id);
     if (!existing) throw notFound('That item no longer exists');
     permissions.assert(me.role, 'write', existing.type);
-    items.remove(existing.id);
-    audit.log({ actor: me.email, role: me.role, action: 'item.delete', target: existing.id,
+    await items.remove(existing.id);
+    await audit.log({ actor: me.email, role: me.role, action: 'item.delete', target: existing.id,
                 detail: { type: existing.type, title: existing.title }, ip: clientIp(req) });
     sendJson(res, 200, { ok: true, id: existing.id });
   });

@@ -50,7 +50,7 @@ function rateLimit(req) {
 /* ---------- who is signed in ---------- */
 /** Reads the session from the cookie or an Authorization: Bearer header.
     Sets ctx.user (public shape), ctx.session and ctx.token, or leaves them null. */
-function identify(req, ctx) {
+async function identify(req, ctx) {
   const cookies = parseCookies(req);
   let token = cookies[config.sessionCookie] || '';
   let viaCookie = Boolean(token);
@@ -61,11 +61,11 @@ function identify(req, ctx) {
   ctx.user = null; ctx.session = null; ctx.token = null; ctx.viaCookie = viaCookie; ctx.cookies = cookies;
   if (!token) return ctx;
 
-  const session = sessions.find(token);
+  const session = await sessions.find(token);
   if (!session) return ctx;
 
-  const user = users.byEmail(session.email);
-  if (!user) { sessions.destroy(token); return ctx; }
+  const user = await users.byEmail(session.email);
+  if (!user) { await sessions.destroy(token); return ctx; }
 
   ctx.user = user;
   ctx.session = session;

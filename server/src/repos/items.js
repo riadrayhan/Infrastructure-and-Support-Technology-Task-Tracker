@@ -1,65 +1,79 @@
 'use strict';
 /* repos/items.js – projects, recurring items and tasks.
 
-   The shape matches exactly what the browser already uses, so no frontend rewrite is needed:
+   The field names match what the browser already uses, so no screen had to change:
      id, type, title, s (status), pri, f1 (Focal-1), f2, sd (start), e (end),
      sh (stakeholder), ms (milestones), rm (remarks)
-   Four extra audit columns are added by the server: created_at/by and updated_at/by. */
+   The server adds createdAt/By and updatedAt/By. */
 
-const db = require('../db');
+const store = require('../store');
 const { TYPES } = require('../permissions');
 const { badRequest, notFound } = require('../http');
 
 const STATUSES = ['Ongoing', 'On Hold', 'Listed', 'Closed', 'Done'];
 const PRIORITIES = ['High', 'Mid', 'Low'];
 const PREFIX = { Project: 'P', Drive: 'D', Task: 'T' };
-
 const FIELDS = ['id', 'type', 'title', 's', 'pri', 'f1', 'f2', 'sd', 'e', 'sh', 'ms', 'rm'];
 
 const str = (v, max = 2000) => String(v === undefined || v === null ? '' : v).trim().slice(0, max);
 const isDate = v => v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v);
+const num = id => {
+  const n = parseInt(String(id).slice(2), 10);
+  return Number.isNaN(n) ? 0 : n;
+};
 
 function toClient(row) {
   if (!row) return null;
   return {
     id: row.id, type: row.type, title: row.title, s: row.s, pri: row.pri,
     f1: row.f1, f2: row.f2, sd: row.sd, e: row.e, sh: row.sh, ms: row.ms, rm: row.rm,
-    createdAt: row.created_at, createdBy: row.created_by,
-    updatedAt: row.updated_at, updatedBy: row.updated_by,
+    createdAt: row.createdAt, createdBy: row.createdBy,
+    updatedAt: row.updatedAt, updatedBy: row.updatedBy,
   };
 }
 
-function list(filter = {}) {
-  const where = [];
-  const values = [];
-  if (filter.type) { where.push('type = ?'); values.push(filter.type); }
-  if (filter.status) { where.push('s = ?'); values.push(filter.status); }
+async function list(filter = {}) {
+  let rows = await store.get().all('items');
+  if (filter.type) rows = rows.filter(r => r.type === filter.type);
+  if (filter.status) rows = rows.filter(r => r.s === filter.status);
   if (filter.person) {
-    where.push('(LOWER(f1) LIKE ? OR LOWER(f2) LIKE ?)');
-    const like = `%${String(filter.person).toLowerCase()}%`;
-    values.push(like, like);
+    const needle = String(filter.person).toLowerCase();
+    rows = rows.filter(r => String(r.f1).toLowerCase().includes(needle) || String(r.f2).toLowerCase().includes(needle));
   }
   if (filter.q) {
-    where.push('(LOWER(title) LIKE ? OR LOWER(id) LIKE ? OR LOWER(sh) LIKE ? OR LOWER(ms) LIKE ?)');
-    const like = `%${String(filter.q).toLowerCase()}%`;
-    values.push(like, like, like, like);
+    const needle = String(filter.q).toLowerCase();
+    rows = rows.filter(r => `${r.title} ${r.id} ${r.sh} ${r.ms}`.toLowerCase().includes(needle));
   }
-  const sql = `SELECT * FROM items ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-               ORDER BY type, CAST(SUBSTR(id, 3) AS INTEGER)`;
-  return db.get().prepare(sql).all(...values).map(toClient);
+  return rows
+    .sort((a, b) => String(a.type).localeCompare(String(b.type)) || num(a.id) - num(b.id))
+    .map(toClient);
 }
 
-function byId(id) {
-  return toClient(db.get().prepare('SELECT * FROM items WHERE id = ?').get(String(id)));
+async function byId(id) {
+  return toClient(await store.get().find('items', { id: String(id) }));
 }
 
-/** Next free id for a type: P-1, P-2, D-1, T-1 … (matches the browser's numbering). */
-function nextId(type) {
+/**
+ * Next free id for a type: P-1, P-2, D-1, T-1 … matching the browser's numbering.
+ * The highest number ever handed out is remembered, so deleting an item does not free its id
+ * for reuse. Two reports printed on different days can never disagree about what P-1 was.
+ */
+async function nextId(type, rows) {
+  const all = rows || await store.get().all('items');
   const prefix = `${PREFIX[type]}-`;
-  const row = db.get().prepare(
-    `SELECT MAX(CAST(SUBSTR(id, ?) AS INTEGER)) AS n FROM items WHERE id LIKE ?`
-  ).get(prefix.length + 1, `${prefix}%`);
-  return `${prefix}${(Number(row && row.n) || 0) + 1}`;
+  const inUse = all.reduce((best, r) => {
+    const id = String(r.id || '');
+    return id.startsWith(prefix) ? Math.max(best, num(id)) : best;
+  }, 0);
+
+  const key = `lastId:${type}`;
+  const marker = await store.get().find('meta', { key });
+  const everUsed = marker ? Number(marker.value) || 0 : 0;
+
+  const next = Math.max(inUse, everUsed) + 1;
+  if (marker) await store.get().update('meta', { key }, { value: String(next) });
+  else await store.get().insert('meta', { key, value: String(next) });
+  return `${prefix}${next}`;
 }
 
 /** Validate and normalise an incoming item. Unknown fields are dropped. */
@@ -79,8 +93,7 @@ function clean(input = {}, { partial = false } = {}) {
   }
   if (!partial || has('f1')) {
     const f1 = str(input.f1, 120);
-    if (!partial && !f1) throw badRequest('Focal-1 (lead) is required', 'bad_focal');
-    if (partial && has('f1') && !f1) throw badRequest('Focal-1 (lead) is required', 'bad_focal');
+    if (!f1) throw badRequest('Focal-1 (lead) is required', 'bad_focal');
     out.f1 = f1;
   }
   if (!partial || has('s')) {
@@ -99,95 +112,94 @@ function clean(input = {}, { partial = false } = {}) {
   for (const key of ['sd', 'e']) {
     if (!partial || has(key)) {
       const v = str(input[key], 10);
-      if (!isDate(v)) throw badRequest(`${key === 'sd' ? 'Start' : 'End'} date must look like 2026-10-14`, 'bad_date');
+      if (!isDate(v)) throw badRequest(`${key === 'sd' ? 'Start' : 'End'} date must look like 2026-10-15`, 'bad_date');
       out[key] = v;
     }
   }
   return out;
 }
 
-function create(input, actor) {
+async function create(input, actor) {
   const data = clean(input);
-  const id = /^[PDT]-\d+$/.test(String(input.id || '')) && !byId(input.id)
-    ? String(input.id)
-    : nextId(data.type);
-  const now = db.nowIso();
-  db.get().prepare(
-    `INSERT INTO items (id, type, title, s, pri, f1, f2, sd, e, sh, ms, rm, created_at, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, data.type, data.title, data.s, data.pri, data.f1, data.f2,
-        data.sd, data.e, data.sh, data.ms, data.rm, now, actor || null);
+  const existing = await store.get().all('items');
+  const wanted = String(input.id || '');
+  const id = /^[PDT]-\d+$/.test(wanted) && !existing.some(r => r.id === wanted)
+    ? wanted
+    : await nextId(data.type, existing);
+
+  await store.get().insert('items', {
+    ...data, id, createdAt: store.nowIso(), createdBy: actor || '', updatedAt: '', updatedBy: '',
+  });
   return byId(id);
 }
 
-function update(id, patch, actor) {
-  const current = byId(id);
+async function update(id, patch, actor) {
+  const current = await byId(id);
   if (!current) throw notFound('That item no longer exists');
   const data = clean(patch, { partial: true });
-  delete data.type;                       // an item never changes type once created
-  const keys = Object.keys(data);
-  if (!keys.length) return current;
-  const sets = keys.map(k => `${k} = ?`).concat('updated_at = ?', 'updated_by = ?');
-  const values = keys.map(k => data[k]).concat(db.nowIso(), actor || null, current.id);
-  db.get().prepare(`UPDATE items SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+  delete data.type;                      // an item never changes type once created
+  if (!Object.keys(data).length) return current;
+  data.updatedAt = store.nowIso();
+  data.updatedBy = actor || '';
+  await store.get().update('items', { id: current.id }, data);
   return byId(current.id);
 }
 
-function remove(id) {
-  const current = byId(id);
+async function remove(id) {
+  const current = await byId(id);
   if (!current) throw notFound('That item no longer exists');
-  db.get().prepare('DELETE FROM items WHERE id = ?').run(current.id);
+  await store.get().remove('items', { id: current.id });
   return current;
 }
 
-/** Replace an item wholesale (the browser's `set` call). Creates it when the id is unknown. */
-function put(id, input, actor) {
-  const existing = byId(id);
+/** Replace an item wholesale (the browser's `set`). Creates it when the id is unknown. */
+async function put(id, input, actor) {
+  const existing = await byId(id);
   if (!existing) return create({ ...input, id }, actor);
   return update(id, { ...input, type: undefined }, actor);
 }
 
-/* ---- archive ("taskhist" in the browser): batches of older rows kept read-only ---- */
-function listArchive() {
-  return db.get().prepare('SELECT * FROM archive_batches ORDER BY at').all().map(b => {
-    let rows = [];
-    try { rows = JSON.parse(b.rows); } catch { rows = []; }
-    return { id: b.id, rows: Array.isArray(rows) ? rows : [], at: b.at };
+/* ---- archive ("taskhist" in the browser): batches of older rows, kept read-only ---- */
+async function listArchive() {
+  const rows = await store.get().all('archive');
+  return rows.map(b => {
+    let parsed = [];
+    try { parsed = JSON.parse(b.rows || '[]'); } catch { parsed = []; }
+    return { id: b.id, rows: Array.isArray(parsed) ? parsed : [], at: b.at };
   });
 }
 
-function putArchive(id, rows) {
+async function putArchive(id, rows) {
   const list = Array.isArray(rows) ? rows : [];
-  db.get().prepare('INSERT OR REPLACE INTO archive_batches (id, rows, at) VALUES (?, ?, ?)')
-    .run(String(id), JSON.stringify(list), db.nowIso());
-  return { id: String(id), rows: list };
+  const record = { id: String(id), rows: JSON.stringify(list), at: store.nowIso() };
+  const existing = await store.get().find('archive', { id: record.id });
+  if (existing) await store.get().update('archive', { id: record.id }, record);
+  else await store.get().insert('archive', record);
+  return { id: record.id, rows: list };
 }
 
-function removeArchive(id) {
-  db.get().prepare('DELETE FROM archive_batches WHERE id = ?').run(String(id));
+async function removeArchive(id) {
+  await store.get().remove('archive', { id: String(id) });
   return { id: String(id) };
 }
 
-/** Counts per type and status, used by the dashboard and the exports. */
-function stats() {
-  const rows = db.get().prepare('SELECT type, s, COUNT(*) AS c FROM items GROUP BY type, s').all();
+/** Counts per type and status, behind the dashboard and the exports. */
+async function stats() {
+  const rows = await store.get().all('items');
   const byType = {};
   for (const t of TYPES) {
     byType[t] = { total: 0 };
     for (const s of STATUSES) byType[t][s] = 0;
   }
-  let total = 0;
+  const today = new Date().toISOString().slice(0, 10);
+  let overdue = 0;
   for (const r of rows) {
     if (!byType[r.type]) continue;
-    byType[r.type][r.s] = r.c;
-    byType[r.type].total += r.c;
-    total += r.c;
+    if (byType[r.type][r.s] !== undefined) byType[r.type][r.s] += 1;
+    byType[r.type].total += 1;
+    if (r.s === 'Ongoing' && r.e && String(r.e) < today) overdue += 1;
   }
-  const today = new Date().toISOString().slice(0, 10);
-  const overdue = db.get().prepare(
-    `SELECT COUNT(*) AS c FROM items WHERE s = 'Ongoing' AND e <> '' AND e < ?`
-  ).get(today).c;
-  return { total, overdue, byType, generatedAt: db.nowIso() };
+  return { total: rows.length, overdue, byType, generatedAt: store.nowIso() };
 }
 
 module.exports = {

@@ -36,8 +36,20 @@ const config = {
   host: process.env.HOST || '0.0.0.0',
   port: num(process.env.PORT, 3000),
 
-  /* Where the SQLite file lives. ':memory:' is used by the tests. */
+  /* Where the data lives: 'sqlite' (a local file) or 'sheets' (a Google Spreadsheet). */
+  storage: (process.env.STORAGE || 'sqlite').toLowerCase(),
+
+  /* Used when storage is 'sqlite'. ':memory:' is used by the tests. */
   dbFile: process.env.DB_FILE || path.join(ROOT, 'data', 'tracker.db'),
+
+  /* Used when storage is 'sheets'. The service account must be an Editor on the spreadsheet. */
+  sheets: {
+    spreadsheetId: process.env.GOOGLE_SHEET_ID || '',
+    credentials: process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '',
+    apiBase: process.env.GOOGLE_SHEETS_API || 'https://sheets.googleapis.com',
+    tokenUrl: process.env.GOOGLE_TOKEN_URL || '',
+    cacheMs: num(process.env.GOOGLE_SHEETS_CACHE_MS, 1500),
+  },
 
   /* Serve the existing frontend (index.html, js/, css/, vendor/, assets/, config/) from the same
      origin, so the browser needs no CORS and cookies work normally. */

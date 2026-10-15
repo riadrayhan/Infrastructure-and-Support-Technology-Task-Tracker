@@ -9,6 +9,10 @@ const fd=s=>s?new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',
 const badge=s=>`<span class="badge rounded-pill b" style="--c:${COL[s]||'#94a3b8'}">${esc(s)}</span>`;
 const avc=n=>{let h=0;for(const ch of String(n))h=(h*31+ch.charCodeAt(0))%360;return `hsl(${h} 62% 46%)`};
 const {base,over}=Model;const pct=p=>Model.pct(p);const own=p=>Model.own(p);
+const shortTime=iso=>{if(!iso)return '';const d=new Date(iso);if(isNaN(d))return '';
+ const today=new Date();const sameDay=d.toDateString()===today.toDateString();
+ return sameDay?d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})
+               :d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})};
 const bar=(g,c,h=4,live)=>`<div class="progress mt-2" style="height:${h}px"><div class="progress-bar ${live?'progress-bar-striped progress-bar-animated':''}" style="width:${g||0}%;background:${c}"></div></div>`;
 const card=(c,body,cls='')=>`<div class="card tcard h-100 ${cls}" style="--c:${c}"><div class="card-body">${body}</div></div>`;
 const sec=(c,t)=>`<h3 class="sec" style="--c:${c}">${t}</h3>`;
@@ -61,7 +65,10 @@ const View={
  countUp(){if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
   document.querySelectorAll('.kpi b[data-n]').forEach(el=>{const n=+el.dataset.n||0;if(!n)return;const t0=performance.now(),D=700;
    const step=t=>{const k=Math.min(1,(t-t0)/D),e=1-Math.pow(1-k,3);el.textContent=Math.round(n*e);if(k<1)requestAnimationFrame(step)};requestAnimationFrame(step)})},
- nav(tabs,cur){$('#nav').innerHTML=tabs.map(x=>`<li class="nav-item"><button class="nav-link ${x[0]===cur?'active':''}" data-a="go" data-v="${x[0]}">${x[1]}</button></li>`).join('')},
+ nav(tabs,cur,badges){$('#nav').innerHTML=tabs.map(x=>{
+  const n=badges&&badges[x[0]];
+  return `<li class="nav-item"><button class="nav-link ${x[0]===cur?'active':''}" data-a="go" data-v="${x[0]}">${x[1]}`
+   +(n?` <span class="badge rounded-pill unread">${n>99?'99+':n}</span>`:'')+`</button></li>`}).join('')},
  page(html){document.querySelectorAll('.tooltip').forEach(t=>t.remove());$('#v').innerHTML='<div class="fade-in">'+html+'</div>'},
  /* --- gate screens shown while nobody is signed in --- */
  gate(kind,msg,storeKind,canEmail){
@@ -172,6 +179,76 @@ const View={
     return `<details ${['Ongoing','On Hold','Listed'].includes(s)?'open':''}><summary style="color:${COL[s]}">${s} (${a.length})</summary><ul class="list-group list-group-flush">${a.sort((x,y)=>(y.e||'')<(x.e||'')?-1:1).slice(0,s==='Done'?60:200).map(p=>`<li class="list-group-item list-group-item-action d-flex justify-content-between gap-2 px-0" data-a="open" data-v="${esc(p.id)}"><span><span class="badge rounded-pill b" style="--c:#64748b">${LBL[p.type]||p.type}</span> ${esc(p.title)}</span><em>${base(p.f1)===SEL?'Lead':'Support'} · ${fd(p.e)}</em></li>`).join('')}</ul></details>`};
    return this.ph('👤',esc(SEL),'Projects, recurring items and tasks – Ongoing, On Hold and Done','#7c3aed',xbtns()+'<button class="btn btn-outline-secondary" data-a="person" data-v="">← All members</button>')+`<div class="row g-3"><div class="col-12 col-lg-5">${card('#7c3aed',this.person(SEL,'fs-5')+this.mt(r))}</div><div class="col-12 col-lg-7">${card('#7c3aed',ST.map(grp).join('')||empty('No items yet'))}</div></div>`}
   return this.ph('👥','Team','Workload of every member – click a card for the full list','#7c3aed',xbtns())+`<div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">${Model.people().map((n,i)=>`<div class="col a-up" style="--i:${i}">${card(avc(n),this.person(n)+this.mt(Model.counts(n)),'pc" data-a="person" data-v="'+esc(n))}</div>`).join('')||'<div class="col">'+empty('No team members yet – create a project or task to get started.')+'</div>'}</div><p class="text-secondary small mt-3">Counts include items where the person is Focal-1 or Focal-2. Click a member for full list.</p>`},
+
+ /* --- chat: colleagues on the left, the conversation on the right --- */
+ chat(chatClient){
+  const me=chatClient.me||{};
+  return this.ph('💬','Chat','Message a colleague directly · messages are kept with the rest of the data','#0891b2',
+   `<span class="badge rounded-pill ${chatClient.connected?'text-bg-success':'text-bg-secondary'}" id="c_state">${chatClient.connected?'● Live':'○ Offline'}</span>`)
+  +`<div class="row g-3 chat">
+    <div class="col-12 col-lg-4">
+     <input class="form-control mb-2" id="c_search" placeholder="Search colleagues…" autocomplete="off">
+     <div class="list-group chat-people" id="c_list"></div>
+    </div>
+    <div class="col-12 col-lg-8">
+     <div class="card tcard chat-pane" style="--c:#0891b2">
+      <div class="card-header d-flex align-items-center gap-2" id="c_head">
+       <span class="text-secondary small">Choose a colleague to start talking</span>
+      </div>
+      <div class="chat-log" id="c_log"></div>
+      <div class="card-footer">
+       <div class="chat-typing text-secondary small" id="c_typing">&nbsp;</div>
+       <div class="input-group">
+        <input class="form-control" id="c_msg" placeholder="Write a message…" autocomplete="off" disabled maxlength="4000">
+        <button class="btn btn-brand" id="c_send" disabled>Send</button>
+       </div>
+      </div>
+     </div>
+    </div>
+   </div>`},
+
+ /** The list of colleagues, newest conversation first. */
+ chatContacts(contacts,openWith,filter){
+  const box=$('#c_list');if(!box)return;
+  const needle=String(filter||'').toLowerCase();
+  const shown=contacts.filter(c=>!needle||(c.name+' '+c.email).toLowerCase().includes(needle));
+  box.innerHTML=shown.length?shown.map(c=>`
+   <button class="list-group-item list-group-item-action chat-person ${c.email===openWith?'active':''}" data-a="chat-open" data-v="${esc(c.email)}">
+    <span class="av av-sm" style="background:${avc(c.name)}">${esc((c.name||'?')[0])}<i class="dot ${c.online?'on':''}"></i></span>
+    <span class="who-text">
+     <span class="d-flex justify-content-between align-items-baseline gap-2">
+      <b class="text-truncate">${esc(c.name)}</b>
+      ${c.lastAt?`<em class="text-secondary">${esc(shortTime(c.lastAt))}</em>`:''}
+     </span>
+     <span class="text-secondary small text-truncate d-block">${c.lastBody?(c.lastFromMe?'You: ':'')+esc(c.lastBody):ROLE_LBL[c.role]||''}</span>
+    </span>
+    ${c.unread?`<span class="badge rounded-pill unread">${c.unread>99?'99+':c.unread}</span>`:''}
+   </button>`).join(''):empty('Nobody matches that search.')},
+
+ /** The conversation. Mine on the right, theirs on the left. */
+ chatMessages(messages,me,person){
+  const log=$('#c_log');if(!log)return;
+  if(!person){log.innerHTML=`<div class="chat-empty text-secondary">Choose a colleague on the left to start talking.</div>`;return}
+  if(!messages.length){log.innerHTML=`<div class="chat-empty text-secondary">No messages yet. Say hello to ${esc(person.name)}.</div>`;return}
+
+  let lastDay='';
+  log.innerHTML=messages.map(m=>{
+   const mine=m.from===me.email;
+   const day=String(m.at).slice(0,10);
+   const divider=day!==lastDay?`<div class="chat-day"><span>${fd(day)}</span></div>`:'';
+   lastDay=day;
+   return divider+`<div class="chat-row ${mine?'mine':''}">
+     <div class="bubble">${esc(m.body).replace(/\n/g,'<br>')}
+      <span class="meta">${esc(shortTime(m.at))}${mine?` <span class="tick ${m.readAt?'read':''}">${m.readAt?'✓✓':'✓'}</span>`:''}</span>
+     </div></div>`}).join('');
+  log.scrollTop=log.scrollHeight},
+
+ chatHeader(person,online,typing){
+  const head=$('#c_head');if(!head)return;
+  if(!person){head.innerHTML='<span class="text-secondary small">Choose a colleague to start talking</span>';return}
+  head.innerHTML=`<span class="av av-sm" style="background:${avc(person.name)}">${esc((person.name||'?')[0])}</span>
+   <span><b>${esc(person.name)}</b> <span class="badge rounded-pill b" style="--c:${ROLE_COL[person.role]}">${ROLE_LBL[person.role]}</span>
+   <span class="d-block text-secondary small">${typing?'typing…':(online?'online':esc(person.email))}</span></span>`},
 
  /* --- modals (return the element; Presenter wires the buttons) --- */
  detail(x,w){

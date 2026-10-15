@@ -38,7 +38,7 @@ function register(router) {
       version: require('../../package.json').version,
       env: config.env,
       time: db.nowIso(),
-      setupRequired: users.count() === 0,
+      setupRequired: await users.count() === 0,
       roles: permissions.ROLES,
     });
   });
@@ -46,8 +46,8 @@ function register(router) {
   /* ---- GET /api/stats – the numbers behind the dashboard ---- */
   router.get('/api/stats', async (req, res, ctx) => {
     requireUser(ctx);
-    const stats = items.stats();
-    const all = items.list();
+    const stats = await items.stats();
+    const all = await items.list();
     const workload = {};
     for (const i of all) {
       for (const who of [i.f1, i.f2]) {
@@ -74,11 +74,11 @@ function register(router) {
       person: q.get('person') || '',
       q: q.get('q') || '',
     };
-    const list = items.list(filter);
+    const list = await items.list(filter);
     const day = new Date().toISOString().slice(0, 10);
     const name = `Tracker-${filter.type ? LABEL[filter.type] || filter.type : 'All'}${filter.status ? '-' + filter.status.replace(/\s+/g, '-') : ''}-${day}`;
 
-    audit.log({ actor: me.email, role: me.role, action: 'export', detail: { format, ...filter, rows: list.length }, ip: clientIp(req) });
+    await audit.log({ actor: me.email, role: me.role, action: 'export', detail: { format, ...filter, rows: list.length }, ip: clientIp(req) });
 
     if (format === 'csv') {
       const csv = toCsv([COLUMNS, ...list.map(rowOf)]);
@@ -89,7 +89,7 @@ function register(router) {
     sendJson(res, 200, {
       title: 'Task and Project Tracker',
       filter, generatedAt: db.nowIso(), generatedBy: me.email,
-      columns: COLUMNS, rows: list.map(rowOf), items: list, stats: items.stats(),
+      columns: COLUMNS, rows: list.map(rowOf), items: list, stats: await items.stats(),
     });
   });
 
@@ -99,13 +99,13 @@ function register(router) {
     permissions.assert(me.role, 'viewAudit');
     const q = ctx.query;
     sendJson(res, 200, {
-      entries: audit.list({
+      entries: await audit.list({
         limit: q.get('limit') || 200,
         offset: q.get('offset') || 0,
         action: q.get('action') || '',
         actor: q.get('actor') || '',
       }),
-      total: audit.count(),
+      total: await audit.count(),
     });
   });
 

@@ -4,11 +4,14 @@
 
 const http = require('node:http');
 const config = require('./config');
-const db = require('./db');
+const store = require('./store');
 const { Router } = require('./router');
 const staticFiles = require('./static');
 const { sendJson, HttpError, notFound, clientIp } = require('./http');
 const { rateLimit, identify, requireCsrf } = require('./middleware');
+
+const chatRoutes = require('./routes/chat');
+const realtime = require('./realtime');
 
 const routes = [
   require('./routes/auth'),
@@ -17,9 +20,10 @@ const routes = [
   require('./routes/meta'),
 ];
 
-function buildRouter() {
+function buildRouter(live) {
   const router = new Router();
   for (const group of routes) group.register(router);
+  chatRoutes.register(router, live);
   return router;
 }
 
@@ -45,8 +49,8 @@ function securityHeaders(res) {
   res.setHeader('Referrer-Policy', 'same-origin');
 }
 
-function createHandler() {
-  const router = buildRouter();
+function createHandler(live) {
+  const router = buildRouter(live);
 
   return async function handle(req, res) {
     const started = Date.now();
@@ -79,7 +83,7 @@ function createHandler() {
       rateLimit(req);
 
       const ctx = { query: url.searchParams, params: {} };
-      identify(req, ctx);
+      await identify(req, ctx);
 
       const match = router.match(req.method, pathname);
       if (!match) throw notFound(`No such endpoint: ${req.method} ${pathname}`);
@@ -122,10 +126,16 @@ function createHandler() {
   };
 }
 
-/** Create a ready-to-listen HTTP server with the database open. */
-function createApp({ initDb = true, log = () => {} } = {}) {
-  if (initDb) db.init(config, log);
-  const server = http.createServer(createHandler());
+/** Create a ready-to-listen HTTP server with the storage open. */
+async function createApp({ initDb = true, seed = true, chat = true, log = () => {} } = {}) {
+  if (initDb) await store.init(log);
+  if (initDb && seed) await require('./seed').ensureSeedAccounts(log);
+  /* Socket.IO needs the HTTP server, and the chat routes need Socket.IO, so the server is
+     created first and the handler attached afterwards. */
+  const server = http.createServer();
+  const live = chat ? realtime.attach(server, { log }) : null;
+  server.on('request', createHandler(live));
+  server.live = live;
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 70_000;
   return server;

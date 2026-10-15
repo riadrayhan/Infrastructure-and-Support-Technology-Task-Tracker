@@ -1,8 +1,11 @@
 # Task and Project Tracker – Node.js backend
 
 A complete backend for the tracker: accounts, roles, items, exports and an audit log.
-It has **no npm dependencies** – it uses Node's own HTTP server and Node's built-in SQLite
-engine, so there is nothing to install and nothing to keep up to date.
+Accounts, roles, items, exports, an audit log and one-to-one chat. Storage is either a local
+SQLite file or a Google Spreadsheet, chosen with one setting.
+
+Its only dependency is **socket.io**, for chat. Everything else, including the SQLite engine, the
+Google Sheets client and the mail sender, uses Node's own built-in modules.
 
 ```
 cd server
@@ -47,6 +50,59 @@ Two details worth knowing:
 * Changing someone's role or password ends their other sessions immediately, so a demotion takes
   effect at once rather than at their next sign-in.
 
+## Where the data lives
+
+Pick with `STORAGE`:
+
+| Value | Where rows go | Setting up |
+|---|---|---|
+| `sqlite` (default) | one file, `data/tracker.db` | nothing |
+| `sheets` | a Google Spreadsheet, one tab per table | a service account, below |
+
+Both drivers answer the same calls, so every route, role and test behaves identically either way.
+
+### Storing everything in a Google Sheet
+
+1. Google Cloud console → create a **service account** → add a **JSON key**.
+2. Enable the **Google Sheets API** for that project.
+3. Share the spreadsheet with the service account's `client_email`, as **Editor**.
+4. Set:
+
+```
+STORAGE=sheets
+GOOGLE_SHEET_ID=14Z6wY6u4WOw_HAfZp5JpNchcm1Pe7kTxXPNhWevnU68
+GOOGLE_SERVICE_ACCOUNT_JSON=./service-account.json      # a path, or the JSON itself
+```
+
+The server creates a tab per table on first start: **Users, Items, Sessions, Requests, Archive,
+Resets, Messages, Meta, Audit**, each with the column names as its header row. Everything the
+tracker stores ends up there, so you can sort, filter, chart or export it like any other sheet.
+
+The token is signed with Node's own crypto, so there is still nothing to `npm install` for this.
+
+## Chat
+
+One-to-one messaging between everyone signed in, over **Socket.IO** (a WebSocket, falling back to
+long polling where one is blocked). Messages are rows like any other record, so they land in the
+same SQLite file or the same spreadsheet.
+
+| Method | Path | Who |
+|---|---|---|
+| `GET` | `/api/chat/contacts` | any role – colleagues, unread counts, who is online |
+| `GET` | `/api/chat/with/:email` | any role – the conversation, and marks it read |
+| `POST` | `/api/chat/with/:email` | any role – send |
+| `POST` | `/api/chat/read/:email` | any role |
+| `GET` | `/api/chat/unread` | any role |
+
+Socket events: the browser sends `chat:send`, `chat:read` and `chat:typing`; the server sends
+`chat:message`, `chat:read`, `chat:typing` and `presence`.
+
+A socket must prove who it is with the same session the REST API uses, by bearer token or by the
+session cookie, so chat cannot be joined by anyone who is not signed in. The sender is always
+taken from the session, never from the message, and typing hints are passed straight through
+without being stored. Chat is open to every role: a Viewer can read the tracker only, but can
+still talk to colleagues.
+
 ## Configuration
 
 Copy `.env.example` to `.env`. Everything is optional.
@@ -54,6 +110,7 @@ Copy `.env.example` to `.env`. Everything is optional.
 | Setting | Default | Meaning |
 |---|---|---|
 | `PORT` / `HOST` | `3000` / `0.0.0.0` | where to listen |
+| `STORAGE` | `sqlite` | `sqlite` or `sheets` |
 | `DB_FILE` | `./data/tracker.db` | the SQLite file, created automatically |
 | `SERVE_STATIC` | `1` | also serve the tracker page from this server |
 | `CORS_ORIGINS` | empty | exact origins allowed to call the API from elsewhere |
@@ -174,8 +231,15 @@ curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/export?form
 npm test
 ```
 
-29 tests run against a real HTTP server and a real database: every role's abilities and refusals,
-validation, sessions, CSRF, throttling, the audit log and the access-request flow.
+81 tests run against a real HTTP server:
+
+* the whole API on **SQLite**: every role's abilities and refusals, validation, sessions, CSRF,
+  throttling, the audit log, the access-request flow and the forgotten-password flow;
+* the whole API again on **Google Sheets**, against a stand-in for Google that verifies the
+  signed service-account token, so the driver's real code path is exercised and each test checks
+  what actually landed in the tab;
+* **chat** over two real Socket.IO clients: delivery, presence, typing, read receipts, privacy
+  between conversations, and refusing a socket that is not signed in.
 
 ## How the browser uses it
 

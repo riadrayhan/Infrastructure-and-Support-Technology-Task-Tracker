@@ -2,17 +2,20 @@
 /* index.js – start the server. `npm start` from the server folder. */
 
 const config = require('./config');
-const db = require('./db');
+const store = require('./store');
+const sessions = require('./repos/sessions');
 const { createApp } = require('./app');
 
-function start() {
+async function start() {
   const seedLog = msg => console.log(`[setup] ${msg}`);
-  const server = createApp({ initDb: true, log: seedLog });
+  const server = await createApp({ initDb: true, log: seedLog });
 
   /* Housekeeping: drop expired sessions every 15 minutes. */
-  const sweep = setInterval(() => {
-    const removed = db.purgeExpiredSessions();
-    if (removed) console.log(`[cleanup] removed ${removed} expired session(s)`);
+  const sweep = setInterval(async () => {
+    try {
+      const removed = await sessions.purgeExpired();
+      if (removed) console.log(`[cleanup] removed ${removed} expired session(s)`);
+    } catch (e) { console.error('[cleanup]', e.message); }
   }, 15 * 60 * 1000);
   sweep.unref?.();
 
@@ -22,7 +25,8 @@ function start() {
     console.log('  Task and Project Tracker – backend');
     console.log(`  API        http://${shown}:${config.port}/api`);
     if (config.serveStatic) console.log(`  Tracker    http://${shown}:${config.port}/`);
-    console.log(`  Database   ${config.dbFile}`);
+    console.log(`  Storage    ${store.get().describe()}`);
+    if (server.live) console.log(`  Chat       Socket.IO on ws://${shown}:${config.port}/socket.io`);
     console.log(`  Mode       ${config.env}`);
     console.log('');
   });
@@ -30,7 +34,11 @@ function start() {
   const shutdown = signal => {
     console.log(`\n[${signal}] shutting down…`);
     clearInterval(sweep);
-    server.close(() => { db.close(); process.exit(0); });
+    server.close(async () => {
+      if (server.live) await server.live.close();
+      await store.close();
+      process.exit(0);
+    });
     setTimeout(() => process.exit(0), 5000).unref?.();
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
@@ -40,6 +48,6 @@ function start() {
   return server;
 }
 
-if (require.main === module) start();
+if (require.main === module) start().catch(err => { console.error(err); process.exit(1); });
 
 module.exports = { start };

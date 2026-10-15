@@ -1,32 +1,34 @@
 'use strict';
 /* repos/audit.js – an append-only record of who changed what.
-   Every write route calls `log()`. The super admin can read it from the API. */
+   Every write route calls log(). Only the super admin can read it back. */
 
-const db = require('../db');
+const store = require('../store');
 
+/** Never let the audit log break the request that triggered it. */
 function log({ actor = null, role = null, action, target = null, detail = null, ip = null }) {
-  try {
-    db.get().prepare(
-      'INSERT INTO audit (at, actor, role, action, target, detail, ip) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(db.nowIso(), actor, role, String(action), target,
-          detail == null ? null : (typeof detail === 'string' ? detail : JSON.stringify(detail)),
-          ip);
-  } catch {
-    /* The audit log must never break the request that triggered it. */
-  }
+  const row = {
+    at: store.nowIso(),
+    actor: actor || '',
+    role: role || '',
+    action: String(action),
+    target: target || '',
+    detail: detail == null ? '' : (typeof detail === 'string' ? detail : JSON.stringify(detail)),
+    ip: ip || '',
+  };
+  return Promise.resolve()
+    .then(() => store.get().insert('audit', row))
+    .catch(() => null);
 }
 
-function list({ limit = 200, offset = 0, action = '', actor = '' } = {}) {
-  const where = [];
-  const values = [];
-  if (action) { where.push('action = ?'); values.push(action); }
-  if (actor) { where.push('actor = ?'); values.push(String(actor).toLowerCase()); }
-  const sql = `SELECT * FROM audit ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-               ORDER BY id DESC LIMIT ? OFFSET ?`;
-  values.push(Math.min(Math.max(Number(limit) || 200, 1), 1000), Math.max(Number(offset) || 0, 0));
-  return db.get().prepare(sql).all(...values);
+async function list({ limit = 200, offset = 0, action = '', actor = '' } = {}) {
+  let rows = await store.get().all('audit');
+  if (action) rows = rows.filter(r => r.action === action);
+  if (actor) rows = rows.filter(r => r.actor === String(actor).toLowerCase());
+  const take = Math.min(Math.max(Number(limit) || 200, 1), 1000);
+  const skip = Math.max(Number(offset) || 0, 0);
+  return rows.reverse().slice(skip, skip + take);
 }
 
-function count() { return db.get().prepare('SELECT COUNT(*) AS c FROM audit').get().c; }
+async function count() { return store.get().count('audit'); }
 
 module.exports = { log, list, count };

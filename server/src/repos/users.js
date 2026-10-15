@@ -1,16 +1,17 @@
 'use strict';
-/* repos/users.js – reading and writing sign-in accounts.
-   A user's password hash never leaves this module: `publicUser()` strips it. */
+/* repos/users.js – sign-in accounts. Works the same whether the rows live in SQLite or in a
+   Google Sheet; it only ever talks to the storage layer.
+   A password hash never leaves this module: publicUser() strips it. */
 
-const db = require('../db');
+const store = require('../store');
 const { hashPassword } = require('../crypto');
 const { ROLES } = require('../permissions');
 const { badRequest, conflict, notFound } = require('../http');
 
 const normalizeEmail = e => String(e || '').trim().toLowerCase();
 
-/* The browser builds its document id by replacing every run of non-alphanumeric characters with
-   an underscore. We keep the same id so the existing frontend code addresses the same records. */
+/* The browser builds its document id by replacing runs of non-alphanumeric characters with an
+   underscore. The same id is used here so the existing frontend addresses the same records. */
 const docId = email => normalizeEmail(email).replace(/[^a-z0-9]+/g, '_') || 'x';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -22,40 +23,40 @@ function publicUser(row) {
     email: row.email,
     name: row.name,
     role: row.role,
-    externalId: row.external_id || '',
-    at: (row.created_at || '').slice(0, 10),
-    by: row.created_by || '',
-    updatedAt: row.updated_at || null,
-    lastLogin: row.last_login || null,
+    externalId: row.externalId || '',
+    at: String(row.createdAt || '').slice(0, 10),
+    by: row.createdBy || '',
+    updatedAt: row.updatedAt || null,
+    lastLogin: row.lastLogin || null,
   };
 }
 
-function list() {
-  return db.get().prepare('SELECT * FROM users ORDER BY name COLLATE NOCASE').all().map(publicUser);
+async function list() {
+  const rows = await store.get().all('users');
+  return rows
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }))
+    .map(publicUser);
 }
 
-/** Internal: the full row including the password hash. Only auth.js should use this. */
-function rawByEmail(email) {
-  return db.get().prepare('SELECT * FROM users WHERE email = ?').get(normalizeEmail(email)) || null;
+/** Internal: the full row including the password hash. Only auth should use this. */
+async function rawByEmail(email) {
+  return store.get().find('users', { email: normalizeEmail(email) });
 }
 
-function byEmail(email) { return publicUser(rawByEmail(email)); }
+async function byEmail(email) { return publicUser(await rawByEmail(email)); }
 
-function byDocId(id) {
-  const row = db.get().prepare('SELECT * FROM users').all().find(u => docId(u.email) === String(id));
-  return publicUser(row);
+async function byDocId(id) {
+  const rows = await store.get().all('users');
+  return publicUser(rows.find(u => docId(u.email) === String(id)));
 }
 
-function byExternalId(externalId) {
+async function byExternalId(externalId) {
   if (!externalId) return null;
-  return publicUser(db.get().prepare('SELECT * FROM users WHERE external_id = ?').get(String(externalId)));
+  return publicUser(await store.get().find('users', { externalId: String(externalId) }));
 }
 
-function count() { return db.get().prepare('SELECT COUNT(*) AS c FROM users').get().c; }
-
-function countByRole(role) {
-  return db.get().prepare('SELECT COUNT(*) AS c FROM users WHERE role = ?').get(role).c;
-}
+async function count() { return store.get().count('users'); }
+async function countByRole(role) { return store.get().count('users', { role }); }
 
 function validate({ email, name, role, password }, { requirePassword = true } = {}) {
   const e = normalizeEmail(email);
@@ -72,66 +73,61 @@ function validate({ email, name, role, password }, { requirePassword = true } = 
   return { email: e, name: n, role };
 }
 
-function create({ email, name, role, password, externalId, createdBy }) {
+async function create({ email, name, role, password, externalId, createdBy }) {
   const clean = validate({ email, name, role, password });
-  if (rawByEmail(clean.email)) throw conflict('This email already has an account');
-  db.get().prepare(
-    `INSERT INTO users (email, name, role, password, external_id, created_at, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(clean.email, clean.name, clean.role, hashPassword(password),
-        externalId || null, db.nowIso(), createdBy || null);
+  if (await rawByEmail(clean.email)) throw conflict('This email already has an account');
+  await store.get().insert('users', {
+    email: clean.email, name: clean.name, role: clean.role,
+    password: hashPassword(password), externalId: externalId || '',
+    createdAt: store.nowIso(), createdBy: createdBy || '', updatedAt: '', lastLogin: '',
+  });
   return byEmail(clean.email);
 }
 
 /** Patch a user. `patch` may contain name, role, password, externalId. */
-function update(email, patch = {}) {
-  const current = rawByEmail(email);
+async function update(email, patch = {}) {
+  const current = await rawByEmail(email);
   if (!current) throw notFound('No account with that email');
 
-  const sets = [];
-  const values = [];
-
+  const changes = {};
   if (patch.name !== undefined) {
     const n = String(patch.name).trim();
     if (!n) throw badRequest('Enter a name', 'bad_name');
-    sets.push('name = ?'); values.push(n);
+    changes.name = n;
   }
   if (patch.role !== undefined) {
     if (!ROLES.includes(patch.role)) throw badRequest(`Role must be one of: ${ROLES.join(', ')}`, 'bad_role');
-    /* Never allow the last super admin to lose that role – it would lock everyone out of user management. */
-    if (current.role === 'superadmin' && patch.role !== 'superadmin' && countByRole('superadmin') <= 1) {
+    /* The last super admin may not lose the role, or nobody could manage users again. */
+    if (current.role === 'superadmin' && patch.role !== 'superadmin' && (await countByRole('superadmin')) <= 1) {
       throw badRequest('This is the only super admin – promote someone else first', 'last_superadmin');
     }
-    sets.push('role = ?'); values.push(patch.role);
+    changes.role = patch.role;
   }
   if (patch.password !== undefined) {
     const p = String(patch.password);
     if (p.length < 4) throw badRequest('The password must be at least 4 characters', 'bad_password');
-    sets.push('password = ?'); values.push(hashPassword(p));
+    changes.password = hashPassword(p);
   }
-  if (patch.externalId !== undefined) {
-    sets.push('external_id = ?'); values.push(patch.externalId || null);
-  }
-  if (!sets.length) return publicUser(current);
+  if (patch.externalId !== undefined) changes.externalId = patch.externalId || '';
+  if (!Object.keys(changes).length) return publicUser(current);
 
-  sets.push('updated_at = ?'); values.push(db.nowIso());
-  values.push(current.email);
-  db.get().prepare(`UPDATE users SET ${sets.join(', ')} WHERE email = ?`).run(...values);
+  changes.updatedAt = store.nowIso();
+  await store.get().update('users', { email: current.email }, changes);
   return byEmail(current.email);
 }
 
-function remove(email) {
-  const current = rawByEmail(email);
+async function remove(email) {
+  const current = await rawByEmail(email);
   if (!current) throw notFound('No account with that email');
-  if (current.role === 'superadmin' && countByRole('superadmin') <= 1) {
+  if (current.role === 'superadmin' && (await countByRole('superadmin')) <= 1) {
     throw badRequest('This is the only super admin – add another one first', 'last_superadmin');
   }
-  db.get().prepare('DELETE FROM users WHERE email = ?').run(current.email);
+  await store.get().remove('users', { email: current.email });
   return { email: current.email };
 }
 
-function touchLogin(email) {
-  db.get().prepare('UPDATE users SET last_login = ? WHERE email = ?').run(db.nowIso(), normalizeEmail(email));
+async function touchLogin(email) {
+  await store.get().update('users', { email: normalizeEmail(email) }, { lastLogin: store.nowIso() });
 }
 
 module.exports = {

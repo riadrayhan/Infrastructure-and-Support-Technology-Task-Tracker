@@ -18,19 +18,19 @@ process.env.LOGIN_MAX_ATTEMPTS = '5';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createApp } = require('../src/app');
-const db = require('../src/db');
+const store = require('../src/store');
 
 let server, base;
 
 test.before(async () => {
-  server = createApp({ initDb: true });
+  server = await createApp({ initDb: true });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
 });
 
 test.after(async () => {
   await new Promise(resolve => server.close(resolve));
-  db.close();
+  await store.close();
 });
 
 /* ---------- tiny client ---------- */

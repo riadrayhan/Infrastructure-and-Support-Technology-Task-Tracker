@@ -19,19 +19,19 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const net = require('node:net');
 const { createApp } = require('../src/app');
-const db = require('../src/db');
+const store = require('../src/store');
 const mailer = require('../src/mailer');
 
 let server, base;
 
 test.before(async () => {
-  server = createApp({ initDb: true });
+  server = await createApp({ initDb: true });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
 test.after(async () => {
   await new Promise(r => server.close(r));
-  db.close();
+  await store.close();
 });
 
 async function call(method, path, { token, body } = {}) {
@@ -99,10 +99,10 @@ test('forgot password: the database never holds the code itself', async () => {
   await call('POST', '/api/auth/forgot', { body: { email } });
   const { code } = lastCode();
 
-  const row = db.get().prepare('SELECT * FROM password_resets WHERE email = ?').get(email);
+  const row = await store.get().find('resets', { email });
   assert.ok(row, 'a row is stored');
-  assert.ok(!String(row.code_hash).includes(code), 'but not the code');
-  assert.equal(String(row.code_hash).length, 64, 'only its SHA-256');
+  assert.ok(!String(row.codeHash).includes(code), 'but not the code');
+  assert.equal(String(row.codeHash).length, 64, 'only its SHA-256');
 });
 
 test('forgot password: an unknown address gets the same answer and no email', async () => {
@@ -138,12 +138,11 @@ test('forgot password: an expired code is refused', async () => {
   await call('POST', '/api/auth/forgot', { body: { email } });
   const { code } = lastCode();
 
-  db.get().prepare('UPDATE password_resets SET expires_at = ? WHERE email = ?')
-    .run(new Date(Date.now() - 60000).toISOString(), email);
+  await store.get().update('resets', { email }, { expiresAt: new Date(Date.now() - 60000).toISOString() });
 
   const res = await call('POST', '/api/auth/reset', { body: { email, code, newPassword: 'whatever1' } });
   assert.equal(res.body.error.code, 'expired_code');
-  assert.equal(db.get().prepare('SELECT COUNT(*) c FROM password_resets WHERE email = ?').get(email).c, 0);
+  assert.equal(await store.get().count('resets', { email }), 0);
 });
 
 test('forgot password: a code works only once', async () => {

@@ -43,22 +43,22 @@ function register(router) {
       throw err;
     }
 
-    const user = users.byEmail(email);
+    const user = await users.byEmail(email);
     if (user) {
       const code = resets.newCode();
-      resets.create(email, code);
+      await resets.create(email, code);
       const message = mailer.resetEmail(user.name, code, config.resetCodeMinutes);
       try {
         await mailer.send({ to: user.email, ...message });
-        audit.log({ actor: email, role: user.role, action: 'password.forgot', target: email, detail: 'code sent', ip });
+        await audit.log({ actor: email, role: user.role, action: 'password.forgot', target: email, detail: 'code sent', ip });
       } catch (e) {
-        resets.remove(email);
-        audit.log({ actor: email, action: 'password.forgot.failed', target: email, detail: String(e.message), ip });
+        await resets.remove(email);
+        await audit.log({ actor: email, action: 'password.forgot.failed', target: email, detail: String(e.message), ip });
         throw new (require('../http').HttpError)(500, 'mail_failed',
           'The code could not be emailed. Ask the super admin to reset your password instead.');
       }
     } else {
-      audit.log({ actor: email, action: 'password.forgot', target: email, detail: 'no such account', ip });
+      await audit.log({ actor: email, action: 'password.forgot', target: email, detail: 'no such account', ip });
     }
 
     /* Deliberately the same answer either way, so this cannot be used to discover who has an account. */
@@ -79,20 +79,20 @@ function register(router) {
     if (next.length < 4) throw badRequest('The new password must be at least 4 characters', 'bad_password');
     if (!code) throw badRequest('Enter the code from the email', 'bad_code');
 
-    const check = resets.verify(email, code);
+    const check = await resets.verify(email, code);
     if (!check.ok) {
-      audit.log({ actor: email, action: 'password.reset.failed', target: email, detail: check.code, ip });
+      await audit.log({ actor: email, action: 'password.reset.failed', target: email, detail: check.code, ip });
       throw new (require('../http').HttpError)(check.code === 'too_many_tries' ? 429 : 400, check.message, check.code);
     }
 
-    const user = users.byEmail(email);
-    if (!user) { resets.remove(email); throw badRequest('No account with that email', 'not_found'); }
+    const user = await users.byEmail(email);
+    if (!user) { await resets.remove(email); throw badRequest('No account with that email', 'not_found'); }
 
-    users.update(email, { password: next });
-    resets.remove(email);
-    sessions.destroyForEmail(email);          // every old sign-in of this account stops working
+    await users.update(email, { password: next });
+    await resets.remove(email);
+    await sessions.destroyForEmail(email);          // every old sign-in of this account stops working
     resetLimiter.reset(email);
-    audit.log({ actor: email, role: user.role, action: 'password.reset', target: email, detail: 'by emailed code', ip });
+    await audit.log({ actor: email, role: user.role, action: 'password.reset', target: email, detail: 'by emailed code', ip });
     sendJson(res, 200, { ok: true, message: 'Your password has been changed. Please sign in.' });
   });
 
@@ -108,24 +108,24 @@ function register(router) {
     const key = `${email}|${ip}`;
     const gate = loginLimiter.hit(key);
     if (!gate.ok) {
-      audit.log({ actor: email, action: 'login.blocked', detail: 'rate limited', ip });
+      await audit.log({ actor: email, action: 'login.blocked', detail: 'rate limited', ip });
       const err = tooMany(`Too many sign-in attempts. Try again in ${Math.ceil(gate.retryAfter / 60)} minute(s).`);
       err.retryAfter = gate.retryAfter;
       throw err;
     }
 
-    const row = users.rawByEmail(email);
+    const row = await users.rawByEmail(email);
     /* Always run a hash comparison so a missing account and a wrong password take the same time. */
     const ok = row ? verifyPassword(password, row.password) : verifyPassword(password, 'scrypt$16384$8$1$AAAA$AAAA');
     if (!row || !ok) {
-      audit.log({ actor: email, action: 'login.failed', ip });
+      await audit.log({ actor: email, action: 'login.failed', ip });
       throw unauthorized('Email or password is not correct');
     }
 
     loginLimiter.reset(key);
-    const { token, csrf, expiresAt } = sessions.create(row.email, { userAgent: req.headers['user-agent'] || '', ip });
-    users.touchLogin(row.email);
-    audit.log({ actor: row.email, role: row.role, action: 'login', ip });
+    const { token, csrf, expiresAt } = await sessions.create(row.email, { userAgent: req.headers['user-agent'] || '', ip });
+    await users.touchLogin(row.email);
+    await audit.log({ actor: row.email, role: row.role, action: 'login', ip });
 
     const maxAge = config.sessionTtlHours * 3600;
     setCookie(res, config.sessionCookie, token, { maxAge, httpOnly: true });
@@ -136,8 +136,8 @@ function register(router) {
 
   /* ---- POST /api/auth/logout ---- */
   router.post('/api/auth/logout', async (req, res, ctx) => {
-    if (ctx.token) sessions.destroy(ctx.token);
-    if (ctx.user) audit.log({ actor: ctx.user.email, role: ctx.user.role, action: 'logout', ip: clientIp(req) });
+    if (ctx.token) await sessions.destroy(ctx.token);
+    if (ctx.user) await audit.log({ actor: ctx.user.email, role: ctx.user.role, action: 'logout', ip: clientIp(req) });
     clearCookie(res, config.sessionCookie);
     clearCookie(res, config.csrfCookie, { httpOnly: false });
     sendJson(res, 200, { ok: true });
@@ -149,11 +149,11 @@ function register(router) {
       return sendJson(res, 200, {
         user: null,
         permissions: null,
-        setupRequired: users.count() === 0,
+        setupRequired: await users.count() === 0,
         roles: permissions.ROLES.map(r => permissions.describe(r)),
       });
     }
-    const expiresAt = sessions.touch(ctx.token);
+    const expiresAt = await sessions.touch(ctx.token);
     sendJson(res, 200, {
       ...sessionPayload(ctx.user, ctx.session.csrf, expiresAt),
       setupRequired: false,
@@ -169,18 +169,18 @@ function register(router) {
     const next = String(body.newPassword || '');
     if (next.length < 4) throw badRequest('The new password must be at least 4 characters', 'bad_password');
 
-    const row = users.rawByEmail(me.email);
+    const row = await users.rawByEmail(me.email);
     /* 400, not 401: the person IS signed in, they just mistyped. A 401 here would make the
        page think the session had expired and sign them out. */
     if (!row || !verifyPassword(current, row.password)) {
       throw badRequest('Your current password is not correct', 'bad_current');
     }
-    users.update(me.email, { password: next });
+    await users.update(me.email, { password: next });
     /* Your other devices are signed out, but the one you are using stays signed in. */
     const others = ctx.token
-      ? sessions.destroyOthers(me.email, ctx.token)
-      : sessions.destroyForEmail(me.email);
-    audit.log({ actor: me.email, role: me.role, action: 'password.change', ip: clientIp(req) });
+      ? await sessions.destroyOthers(me.email, ctx.token)
+      : await sessions.destroyForEmail(me.email);
+    await audit.log({ actor: me.email, role: me.role, action: 'password.change', ip: clientIp(req) });
     sendJson(res, 200, { ok: true, message: 'Your password has been changed.', otherSessionsEnded: others });
   });
 
@@ -191,26 +191,26 @@ function register(router) {
     const name = String(body.name || '').trim();
     if (!name) throw badRequest('Enter a name', 'bad_name');
     if (name.length > 120) throw badRequest('That name is too long', 'bad_name');
-    const updated = users.update(me.email, { name });
-    audit.log({ actor: me.email, role: me.role, action: 'profile.update', target: me.email,
+    const updated = await users.update(me.email, { name });
+    await audit.log({ actor: me.email, role: me.role, action: 'profile.update', target: me.email,
                 detail: 'name', ip: clientIp(req) });
     sendJson(res, 200, updated);
   });
 
   /* ---- POST /api/auth/setup – create the first super admin, only while no account exists ---- */
   router.post('/api/auth/setup', async (req, res, ctx) => {
-    if (users.count() > 0) throw badRequest('Setup has already been completed – please sign in', 'already_setup');
+    if (await users.count() > 0) throw badRequest('Setup has already been completed – please sign in', 'already_setup');
     const body = await readJson(req);
-    const created = users.create({
+    const created = await users.create({
       email: body.email, name: body.name, role: 'superadmin',
       password: body.password, createdBy: 'setup',
     });
     const ip = clientIp(req);
-    const { token, csrf, expiresAt } = sessions.create(created.email, { userAgent: req.headers['user-agent'] || '', ip });
+    const { token, csrf, expiresAt } = await sessions.create(created.email, { userAgent: req.headers['user-agent'] || '', ip });
     const maxAge = config.sessionTtlHours * 3600;
     setCookie(res, config.sessionCookie, token, { maxAge, httpOnly: true });
     setCookie(res, config.csrfCookie, csrf, { maxAge, httpOnly: false });
-    audit.log({ actor: created.email, role: 'superadmin', action: 'setup', ip });
+    await audit.log({ actor: created.email, role: 'superadmin', action: 'setup', ip });
     sendJson(res, 201, sessionPayload(created, csrf, expiresAt, token));
   });
 }

@@ -4,6 +4,9 @@
 /* ============================ PRESENTER ============================ */
 const Presenter={
  TABS:[['overview','Overview'],['projects','Projects'],['recurring','Recurring'],['tasks','Tasks'],['team','Team']],
+ chat:null,CF:'',
+ /** The tab strip, with Chat added when a backend carries it. */
+ tabs(){return this.chat&&this.chat.available?this.TABS.concat([['chat','Chat']]):this.TABS},
  PT:{projects:'Project',recurring:'Drive'},
  THEMES:[{id:'light',label:'Light',icon:'☀️',base:'light',swatch:'linear-gradient(135deg,#f3f5fb 45%,#6d28d9 45%,#ec008c)'},
          {id:'dark',label:'Dark',icon:'🌙',base:'dark',swatch:'linear-gradient(135deg,#0a0f1e 45%,#6d28d9 45%,#ec008c)'},
@@ -16,10 +19,10 @@ const Presenter={
  /* --- navigation --- */
  go(t){const changed=t!==this.tab;this.tab=t;if(changed)window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
   if(!Model.session){View.nav([],'');View.gate(this.gate.kind,this.gate.msg,Model.store&&Model.store.kind,this.canEmailCode());this.bindGate();return}
-  View.nav(this.TABS,t);
+  View.nav(this.tabs(),t,{chat:this.chat?this.chat.totalUnread():0});
   const bt=this.PT[t];
-  View.page(bt?View.board(bt,this.F):{overview:()=>View.overview(),tasks:()=>View.tasks(this.TF),team:()=>View.team(this.SEL)}[t]());
-  if(bt)this.bindBoard(bt);if(t==='tasks')this.bindTasks();if(t==='overview')View.countUp()},
+  View.page(bt?View.board(bt,this.F):{overview:()=>View.overview(),tasks:()=>View.tasks(this.TF),team:()=>View.team(this.SEL),chat:()=>View.chat(this.chat)}[t]());
+  if(bt)this.bindBoard(bt);if(t==='tasks')this.bindTasks();if(t==='overview')View.countUp();if(t==='chat')this.bindChat()},
  draw(){this.go(this.tab)},
 
  /* the filtered lists – shared by the page rendering and the export */
@@ -101,8 +104,10 @@ const Presenter={
  setGate(kind,msg){this.gate={kind,msg:msg||''};this.draw()},
  signIn(u,remember){Model.session={email:u.email,name:u.name,role:u.role,id:u.id||'',owner:!!u.owner};
   if(remember&&this.isLocal())try{localStorage.setItem('tracker.session',u.email)}catch(e){}
-  Model.start(e=>this.syncStatus(e));this.syncStatus();View.who(Model.session,this.usesPasswords());this.tab='overview';this.draw()},
- async signOut(){if(this.isApi()){try{await Model.store.logout()}catch(e){}}
+  Model.start(e=>this.syncStatus(e));this.syncStatus();View.who(Model.session,this.usesPasswords());this.tab='overview';this.draw();
+  this.startChat()},
+ async signOut(){if(this.chat){this.chat.stop();this.chat=null}
+  if(this.isApi()){try{await Model.store.logout()}catch(e){}}
   Model.session=null;try{localStorage.removeItem('tracker.session')}catch(e){}View.who(null,this.usesPasswords());this.setGate('login')},
  /* Only a backend can email a code; the browser-only build cannot. */
  canEmailCode(){return!!(Model.store&&Model.store.kind==='api'&&typeof Model.store.forgotPassword==='function')},
@@ -175,6 +180,47 @@ const Presenter={
   if(!me.id){this.setGate('blocked','Your account could not be identified, so access could not be checked. Please contact the super admin.');return}
   if(!this.gate.rq){this.gate.rq=true;try{await Model.store.set('requests',me.id,{id:me.id,email:me.email||'',name:me.name||'',at:today10()})}catch(e){}}
   this.setGate('blocked',`You do not have access yet. Ask the super admin to add you${me.email?' ('+me.email+')':''} as a user. This page opens automatically once a role is assigned.`)},
+
+ /* ---- chat ---- */
+ bindChat(){const chat=this.chat;if(!chat)return;
+  View.chatContacts(chat.contacts,chat.openWith,this.CF);
+  View.chatHeader(chat.contact(chat.openWith),chat.online.includes(chat.openWith),chat.isTyping(chat.openWith));
+  View.chatMessages(chat.messages,chat.me||{},chat.contact(chat.openWith));
+
+  const search=$('#c_search');if(search){search.value=this.CF;
+   search.oninput=()=>{this.CF=search.value;View.chatContacts(chat.contacts,chat.openWith,this.CF)}}
+
+  const box=$('#c_msg'),send=$('#c_send');
+  const ready=Boolean(chat.openWith);
+  if(box){box.disabled=!ready;send.disabled=!ready;
+   if(ready)setTimeout(()=>box.focus(),50);
+   let last=0;
+   const post=async()=>{const text=box.value.trim();if(!text)return;
+    box.value='';chat.typing(chat.openWith,false);last=0;   /* typing again right away is signalled */
+    try{await chat.send(chat.openWith,text)}catch(e){View.toast((e&&e.message)||'Could not send');box.value=text}};
+   send.onclick=post;
+   box.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();post()}};
+   box.oninput=()=>{const now=Date.now();if(now-last>1500){last=now;chat.typing(chat.openWith,true)}}}},
+
+ async openChatWith(email){const chat=this.chat;if(!chat)return;
+  try{await chat.openConversation(email)}catch(e){View.toast((e&&e.message)||'Could not open that conversation')}
+  if(this.tab!=='chat')this.go('chat');else this.bindChat()},
+
+ /** Start chat once somebody is signed in, and keep the screen in step with the socket. */
+ async startChat(){
+  if(!this.isApi()||typeof ChatClient==='undefined')return;
+  if(this.chat)this.chat.stop();
+  const chat=new ChatClient(Model.store);this.chat=chat;
+  chat.on('contacts',()=>{if(this.tab==='chat')View.chatContacts(chat.contacts,chat.openWith,this.CF);
+   View.nav(this.tabs(),this.tab,{chat:chat.totalUnread()})});
+  chat.on('messages',()=>{if(this.tab==='chat'){View.chatMessages(chat.messages,chat.me||{},chat.contact(chat.openWith));
+   View.chatHeader(chat.contact(chat.openWith),chat.online.includes(chat.openWith),chat.isTyping(chat.openWith))}});
+  chat.on('typing',()=>{if(this.tab==='chat')View.chatHeader(chat.contact(chat.openWith),chat.online.includes(chat.openWith),chat.isTyping(chat.openWith))});
+  chat.on('status',s=>{const b=$('#c_state');if(b){b.className='badge rounded-pill '+(s.connected?'text-bg-success':'text-bg-secondary');b.textContent=s.connected?'● Live':'○ Offline'}});
+  chat.on('unread',n=>View.nav(this.tabs(),this.tab,{chat:n}));
+  chat.on('notify',m=>{const who=chat.contact(m.from);View.toast(`💬 ${who?who.name:m.from}: ${String(m.body).slice(0,60)}`)});
+  const ok=await chat.start();
+  if(ok)View.nav(this.tabs(),this.tab,{chat:chat.totalUnread()})},
 
  /* ---- your own profile and password ---- */
  openProfile(){const sess=Model.session;if(!sess)return;
@@ -255,7 +301,8 @@ const Presenter={
    else if(a==='pf'){const[k,z]=v.split('|');if(k==='Task'){this.TF={q:'',who:'',st:z,n:100};this.go('tasks')}else{this.F={q:'',pri:'',who:'',st:z};this.go(PAGES[k].tab)}}
    else if(a==='open')this.openItem(v);else if(a==='new')this.openForm(null,v);else if(a==='export')this.export(v);else if(a==='theme')this.setTheme(v)
    else if(a==='users')this.openUsers();else if(a==='share')this.openShare();else if(a==='signout')this.signOut()
-   else if(a==='profile')this.openProfile();else if(a==='password')this.openPassword()});
+   else if(a==='profile')this.openProfile();else if(a==='password')this.openPassword()
+   else if(a==='chat-open')this.openChatWith(v)});
   /* modals: backdrop click and Escape are handled by Bootstrap */
   View.themes=this.THEMES;
   this.setTheme(document.documentElement.getAttribute('data-theme')||'light',false);View.init();
