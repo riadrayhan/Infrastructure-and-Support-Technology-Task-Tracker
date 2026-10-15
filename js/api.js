@@ -35,6 +35,8 @@
   class ApiStore {
     constructor() {
       this.kind = 'api';
+      this.flavour = 'node';
+      this.supportsChat = true;       // the Node server carries the Socket.IO side of chat
       this.subs = {};                 // collection -> [callback]
       this.cache = { items: [], taskhist: [], users: [], requests: [] };
       this.usersById = {};            // the browser's underscore id -> email

@@ -208,7 +208,8 @@ const Presenter={
 
  /** Start chat once somebody is signed in, and keep the screen in step with the socket. */
  async startChat(){
-  if(!this.isApi()||typeof ChatClient==='undefined')return;
+  if(typeof ChatClient==='undefined')return;
+  if(!this.isApi()||!Model.store.supportsChat)return;   /* chat needs the Node server's socket */
   if(this.chat)this.chat.stop();
   const chat=new ChatClient(Model.store);this.chat=chat;
   chat.on('contacts',()=>{if(this.tab==='chat')View.chatContacts(chat.contacts,chat.openWith,this.CF);

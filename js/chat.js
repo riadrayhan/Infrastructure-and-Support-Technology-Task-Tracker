@@ -46,6 +46,8 @@
     async start() {
       try {
         const data = await this.request('GET', '/api/chat/contacts');
+        /* Only treat chat as present when the answer really is a contact list. */
+        if (!data || !data.me || !Array.isArray(data.contacts)) { this.available = false; return false; }
         this.available = true;
         this.me = data.me;
         this.contacts = data.contacts || [];

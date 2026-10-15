@@ -36,6 +36,7 @@
       this.url = String(url || global.GAS_URL || '').trim();
       this.kind = 'api';              // the Presenter treats both backends identically
       this.flavour = 'gsheet';
+      this.supportsChat = false;      // chat needs a socket, which Apps Script cannot hold open
       this.subs = {};
       this.cache = { items: [], taskhist: [], users: [], requests: [] };
       this.usersById = {};
@@ -97,14 +98,21 @@
       return data;
     }
 
-    /** Parity with js/api.js so shared code and tests can use either store. */
+    /** Parity with js/api.js so shared code can use either store. Paths this backend does not
+        implement must fail loudly: answering something unrelated would look like success. */
     request(method, path, body) {
       var map = {
         '/api/items': 'listItems', '/api/export': 'exportData',
         '/api/stats': 'stats', '/api/users': 'listUsers', '/api/audit': 'audit',
+        '/api/health': 'health',
       };
       if (method === 'POST' && path === '/api/items') return this.call('saveItem', { item: body });
-      return this.call(map[path] || 'health', body);
+      var action = map[path];
+      if (!action) {
+        return Promise.reject(GasError(404, 'not_supported',
+          'The Google Sheets backend does not offer ' + path));
+      }
+      return this.call(action, body);
     }
 
     get role() { return (this.session && this.session.user && this.session.user.role) || ''; }
