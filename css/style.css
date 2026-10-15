@@ -163,3 +163,8 @@ tr.c td{transition:background .15s}
 #nav .nav-link.active{animation:navIn .25s cubic-bezier(.2,.7,.2,1)}
 .placeholder{background:var(--bs-secondary-color);border-radius:6px}
 .tooltip{--bs-tooltip-bg:#0f172a;--bs-tooltip-border-radius:8px;font-size:.75rem}
+
+/* ---- the Settings menu in the header ---- */
+.settings-menu{min-width:232px}
+.settings-menu .dropdown-header{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em}
+.settings-menu .dropdown-item.text-danger{--bs-dropdown-link-hover-bg:#dc26261f}

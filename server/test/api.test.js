@@ -409,7 +409,9 @@ test('changing your own password needs the current one and then works', async ()
   const wrong = await call('POST', '/api/auth/password', {
     token, body: { currentPassword: 'nope', newPassword: 'adminpw2' },
   });
-  assert.equal(wrong.status, 401);
+  assert.equal(wrong.status, 400, 'a mistyped password must not look like an expired session');
+  assert.equal(wrong.body.error.code, 'bad_current');
+  assert.equal((await call('GET', '/api/auth/me', { token })).body.user.email, 'amina@example.com');
 
   const ok = await call('POST', '/api/auth/password', {
     token, body: { currentPassword: 'adminpw', newPassword: 'adminpw2' },
@@ -472,4 +474,20 @@ test('item ids keep counting up and never collide', async () => {
   const numA = Number(a.body.id.slice(2));
   const numB = Number(b.body.id.slice(2));
   assert.equal(numB, numA + 1);
+});
+
+test('changing your own password keeps this device signed in and drops the others', async () => {
+  const here = await login('vik@example.com', 'viewerpw');
+  const elsewhere = await login('vik@example.com', 'viewerpw');
+
+  const res = await call('POST', '/api/auth/password', {
+    token: here, body: { currentPassword: 'viewerpw', newPassword: 'nextone1' },
+  });
+  assert.equal(res.status, 200);
+
+  assert.equal((await call('GET', '/api/auth/me', { token: here })).body.user.email, 'vik@example.com');
+  assert.equal((await call('GET', '/api/auth/me', { token: elsewhere })).body.user, null);
+
+  /* put it back so later tests still know the password */
+  await call('POST', '/api/auth/password', { token: here, body: { currentPassword: 'nextone1', newPassword: 'viewerpw' } });
 });

@@ -170,19 +170,31 @@ function register(router) {
     if (next.length < 4) throw badRequest('The new password must be at least 4 characters', 'bad_password');
 
     const row = users.rawByEmail(me.email);
+    /* 400, not 401: the person IS signed in, they just mistyped. A 401 here would make the
+       page think the session had expired and sign them out. */
     if (!row || !verifyPassword(current, row.password)) {
-      throw unauthorized('Your current password is not correct');
+      throw badRequest('Your current password is not correct', 'bad_current');
     }
     users.update(me.email, { password: next });
-    /* Every other sign-in of this account is ended; this one keeps working. */
-    const token = ctx.token;
-    sessions.destroyForEmail(me.email);
-    const fresh = sessions.create(me.email, { userAgent: req.headers['user-agent'] || '', ip: clientIp(req) });
-    const maxAge = config.sessionTtlHours * 3600;
-    setCookie(res, config.sessionCookie, fresh.token, { maxAge, httpOnly: true });
-    setCookie(res, config.csrfCookie, fresh.csrf, { maxAge, httpOnly: false });
+    /* Your other devices are signed out, but the one you are using stays signed in. */
+    const others = ctx.token
+      ? sessions.destroyOthers(me.email, ctx.token)
+      : sessions.destroyForEmail(me.email);
     audit.log({ actor: me.email, role: me.role, action: 'password.change', ip: clientIp(req) });
-    sendJson(res, 200, { ok: true, csrf: fresh.csrf, token: fresh.token, expiresAt: fresh.expiresAt, replaced: Boolean(token) });
+    sendJson(res, 200, { ok: true, message: 'Your password has been changed.', otherSessionsEnded: others });
+  });
+
+  /* ---- POST /api/auth/profile – change your own display name ---- */
+  router.post('/api/auth/profile', async (req, res, ctx) => {
+    const me = requireUser(ctx);
+    const body = await readJson(req);
+    const name = String(body.name || '').trim();
+    if (!name) throw badRequest('Enter a name', 'bad_name');
+    if (name.length > 120) throw badRequest('That name is too long', 'bad_name');
+    const updated = users.update(me.email, { name });
+    audit.log({ actor: me.email, role: me.role, action: 'profile.update', target: me.email,
+                detail: 'name', ip: clientIp(req) });
+    sendJson(res, 200, updated);
   });
 
   /* ---- POST /api/auth/setup – create the first super admin, only while no account exists ---- */

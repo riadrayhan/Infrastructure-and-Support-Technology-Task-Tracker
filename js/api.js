@@ -71,7 +71,11 @@
 
       if (!res.ok) {
         const err = (payload && payload.error) || {};
-        if (res.status === 401 && this.session) { this.session = null; this.onAuthLost(); }
+        /* Only a genuine "you are not signed in" ends the session. A refused password or a
+           forbidden action must not throw the person out of the page. */
+        if (res.status === 401 && (err.code === 'unauthorized' || !err.code) && this.session) {
+          this.session = null; this.onAuthLost();
+        }
         throw new ApiError(res.status, err.code || 'error', err.message || `Request failed (${res.status})`);
       }
       return payload;
@@ -119,6 +123,21 @@
     /** Finish the reset with the emailed code and the new password. */
     resetPassword(email, code, newPassword) {
       return this.request('POST', '/api/auth/reset', { email, code, newPassword });
+    }
+
+    /* ---------- your own account ---------- */
+    /** Change your own password; the server issues a fresh session. */
+    async changePassword(currentPassword, newPassword) {
+      const res = await this.request('POST', '/api/auth/password', { currentPassword, newPassword });
+      if (res && res.csrf && this.session) this.session.csrf = res.csrf;
+      return res;
+    }
+
+    /** Change the name colleagues see beside your sign-in. */
+    async updateProfile(name) {
+      const res = await this.request('POST', '/api/auth/profile', { name });
+      if (this.session && this.session.user) this.session.user.name = name;
+      return res;
     }
 
     /* ---------- the store interface used by model.js ---------- */

@@ -176,6 +176,40 @@ const Presenter={
   if(!this.gate.rq){this.gate.rq=true;try{await Model.store.set('requests',me.id,{id:me.id,email:me.email||'',name:me.name||'',at:today10()})}catch(e){}}
   this.setGate('blocked',`You do not have access yet. Ask the super admin to add you${me.email?' ('+me.email+')':''} as a user. This page opens automatically once a role is assigned.`)},
 
+ /* ---- your own profile and password ---- */
+ openProfile(){const sess=Model.session;if(!sess)return;
+  const canRename=this.usesPasswords();          /* on claude.ai the name comes from the account */
+  const m=View.profile(sess,canRename);
+  const save=m.querySelector('#p_save');if(!save)return;
+  save.onclick=async()=>{const name=m.querySelector('#p_name').value.trim();
+   if(!name){View.toast('Enter a name');return}
+   if(name===sess.name){m.close();return}
+   save.disabled=true;
+   try{
+    if(this.isApi())await Model.store.updateProfile(name);
+    else await Model.updateUser(sess.email,{name});
+    Model.session.name=name;View.who(Model.session,this.usesPasswords());
+    m.close();View.toast('Name updated ✓')
+   }catch(e){save.disabled=false;View.toast((e&&e.message)||'Could not save')}}},
+
+ openPassword(){if(!Model.session)return;
+  if(!this.usesPasswords()){View.toast('Your password is managed by your claude.ai account');return}
+  const m=View.password(),save=m.querySelector('#w_save');
+  save.onclick=async()=>{const v=i=>m.querySelector(i).value;
+   const cur=v('#w_cur'),next=v('#w_new'),again=v('#w_new2');
+   if(next.length<4){View.toast('The new password must be at least 4 characters');return}
+   if(next!==again){View.toast('The two new passwords do not match');return}
+   save.disabled=true;
+   try{
+    if(this.isApi()){await Model.store.changePassword(cur,next)}
+    else{
+     const u=Model.findUser(Model.session.email);
+     if(!u||u.pw!==await Model.hash(cur)){save.disabled=false;View.toast('Your current password is not correct');return}
+     await Model.updateUser(u.email,{pw:await Model.hash(next)});
+    }
+    m.close();View.toast('Password changed ✓')
+   }catch(e){save.disabled=false;View.toast((e&&e.message)||'Could not change the password')}}},
+
  /* ======================= user management (super admin only) ======================= */
  openUsers(){if(!Model.can('manage')){View.toast('Only the super admin can manage users');return}
   const m=View.users(this.usesPasswords());this.USERSM=m;this.renderUsers(m)},
@@ -212,7 +246,7 @@ const Presenter={
  setTheme(id,save=true){const t=this.THEMES.find(x=>x.id===id)||this.THEMES[0],h=document.documentElement;
   h.classList.add('theming');h.setAttribute('data-theme',t.id);h.setAttribute('data-bs-theme',t.base);setTimeout(()=>h.classList.remove('theming'),450);
   if(save)try{localStorage.setItem('tracker.theme',t.id)}catch(e){}
-  View.themeMenu(this.THEMES,t.id)},
+  View.settingsMenu(Model.session,this.usesPasswords())},
 
  /* --- global events --- */
  bindEvents(){
@@ -220,8 +254,10 @@ const Presenter={
    if(a==='go')this.go(v);else if(a==='kpi'){this.F.st=v;this.go(this.PT[this.tab]?this.tab:'projects')}else if(a==='person'){this.SEL=v;this.go('team')}
    else if(a==='pf'){const[k,z]=v.split('|');if(k==='Task'){this.TF={q:'',who:'',st:z,n:100};this.go('tasks')}else{this.F={q:'',pri:'',who:'',st:z};this.go(PAGES[k].tab)}}
    else if(a==='open')this.openItem(v);else if(a==='new')this.openForm(null,v);else if(a==='export')this.export(v);else if(a==='theme')this.setTheme(v)
-   else if(a==='users')this.openUsers();else if(a==='share')this.openShare();else if(a==='signout')this.signOut()});
+   else if(a==='users')this.openUsers();else if(a==='share')this.openShare();else if(a==='signout')this.signOut()
+   else if(a==='profile')this.openProfile();else if(a==='password')this.openPassword()});
   /* modals: backdrop click and Escape are handled by Bootstrap */
+  View.themes=this.THEMES;
   this.setTheme(document.documentElement.getAttribute('data-theme')||'light',false);View.init();
   Model.onChange(()=>{if(Model.session)this.draw()})},
 

@@ -87,7 +87,11 @@
       }
       if (data.error) {
         var status = data.error.status || (data.error.code === 'unauthorized' ? 401 : 400);
-        if (status === 401 && this.session) { this.signedOut(); this.onAuthLost(); }
+        /* Only a genuine "you are not signed in" ends the session. A refused password or a
+           forbidden action must not throw the person out of the page. */
+        if (status === 401 && data.error.code === 'unauthorized' && this.session) {
+          this.signedOut(); this.onAuthLost();
+        }
         throw GasError(status, data.error.code || 'error', data.error.message || 'Request failed');
       }
       return data;
@@ -148,6 +152,22 @@
     /** Finish the reset with the emailed code and the new password. */
     resetPassword(email, code, newPassword) {
       return this.call('resetPassword', { email: email, code: code, newPassword: newPassword }, 30000);
+    }
+
+    /* ---------- your own account ---------- */
+    /** Change your own password; the script hands back a fresh session token. */
+    async changePassword(currentPassword, newPassword) {
+      const res = await this.call('changePassword',
+        { currentPassword: currentPassword, newPassword: newPassword }, 30000);
+      if (res && res.token) { this.token = res.token; writeToken(this.token); }
+      return res;
+    }
+
+    /** Change the name colleagues see beside your sign-in. */
+    async updateProfile(name) {
+      const res = await this.call('updateProfile', { name: name });
+      if (this.session && this.session.user) this.session.user.name = name;
+      return res;
     }
 
     /* ---------- the store interface model.js expects ---------- */

@@ -36,8 +36,27 @@ const View={
    s.style.cssText=`width:${d}px;height:${d}px;left:${e.clientX-r.left-d/2}px;top:${e.clientY-r.top-d/2}px`;b.appendChild(s);setTimeout(()=>s.remove(),650)});
   if(window.bootstrap)new bootstrap.Tooltip(document.body,{selector:'[data-bs-toggle="tooltip"]',trigger:'hover',delay:{show:350,hide:0}})},
  /* theme picker (dropdown in the hero) */
- themeMenu(themes,cur){$('#thm').innerHTML=themes.map(t=>`<li><button class="dropdown-item d-flex align-items-center gap-2 ${t.id===cur?'active':''}" data-a="theme" data-v="${t.id}"><span class="sw" style="background:${t.swatch}"></span>${t.label}${t.id===cur?'<span class="ms-auto">✓</span>':''}</button></li>`).join('');
-  const b=$('#th');if(b){const t=themes.find(x=>x.id===cur);b.textContent=(t?t.icon+' ':'')+'Theme'}},
+ themes:[],                       /* filled in by the Presenter at start-up */
+ /* The Settings menu: who you are, your own account, the theme and signing out.
+    `passwords` is false on the claude.ai build, where there is no password to change. */
+ settingsMenu(sess,passwords){
+  const box=$('#stm');if(!box)return;
+  if(!sess){box.innerHTML='';return}
+  const cur=document.documentElement.getAttribute('data-theme')||'light';
+  const item=(action,icon,label,extra)=>`<li><button class="dropdown-item d-flex align-items-center gap-2 ${extra||''}" data-a="${action}"><span style="width:1.3em">${icon}</span>${label}</button></li>`;
+  box.innerHTML=
+   `<li class="px-3 pt-2 pb-1"><div class="fw-semibold text-truncate" style="max-width:220px">${esc(sess.name)}</div>`
+   +`<div class="text-secondary small text-truncate" style="max-width:220px">${esc(sess.email)}</div>`
+   +`<span class="badge rounded-pill role mt-1" style="--c:${ROLE_COL[sess.role]}">${ROLE_LBL[sess.role]}</span></li>`
+   +`<li><hr class="dropdown-divider"></li>`
+   +item('profile','👤','My profile')
+   +(passwords?item('password','🔑','Update password'):'')
+   +(sess.role==='superadmin'?item('users','👥','Users &amp; roles'):'')
+   +item('share','🔗','Share link')
+   +`<li><hr class="dropdown-divider"></li><li><h6 class="dropdown-header py-1">Theme</h6></li>`
+   +(this.themes||[]).map(t=>`<li><button class="dropdown-item d-flex align-items-center gap-2 ${t.id===cur?'active':''}" data-a="theme" data-v="${t.id}"><span class="sw" style="background:${t.swatch}"></span>${t.label}${t.id===cur?'<span class="ms-auto">✓</span>':''}</button></li>`).join('')
+   +`<li><hr class="dropdown-divider"></li>`
+   +item('signout','⎋','Sign out','text-danger')},
  /* KPI numbers count up from 0 after the overview renders */
  countUp(){if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
   document.querySelectorAll('.kpi b[data-n]').forEach(el=>{const n=+el.dataset.n||0;if(!n)return;const t0=performance.now(),D=700;
@@ -73,8 +92,11 @@ const View={
   $('#v').innerHTML=h},
  /* --- signed-in person in the hero + which toolbar buttons they get --- */
  who(sess,local){const w=$('#who');
-  w.classList.toggle('d-none',!sess);$('#us').classList.toggle('d-none',!(sess&&sess.role==='superadmin'));$('#so').classList.toggle('d-none',!(sess&&local));
-  if(!sess){w.innerHTML='';return}
+  const box=$('#settings');
+  w.classList.toggle('d-none',!sess);if(box)box.classList.toggle('d-none',!sess);
+  this.settingsMenu(sess,local);
+  /* The sign-in page carries nothing at all – no controls and no status line. */
+  if(!sess){w.innerHTML='';this.status('',false);return}
   w.innerHTML=`<span class="av av-sm" style="background:${avc(sess.name||'?')}">${esc((sess.name||'?')[0])}</span><span class="d-none d-sm-inline-block text-truncate" style="max-width:160px" title="${esc(sess.email)}">${esc(sess.name)}</span><span class="badge rounded-pill role" style="--c:${ROLE_COL[sess.role]}">${ROLE_LBL[sess.role]}</span>`},
  ph:(ic,t,sub,c,act)=>`<div class="ph d-flex align-items-center flex-wrap gap-3" style="--c:${c}"><span class="pi">${ic}</span><div><h2 class="mb-0">${t}</h2><p class="mb-0 text-secondary small">${sub}</p></div><div class="pa ms-auto d-flex flex-wrap gap-2">${act||''}</div></div>`,
 
@@ -178,6 +200,32 @@ const View={
   return this.modalShell({c:'#ec008c',size:'',title:'<h2 class="h5 fw-bold mb-0">🔗 Share this tracker</h2>',
    body:`<label class="form-label small text-secondary mb-1">Page link</label><div class="input-group"><input class="form-control" id="sl" readonly value="${url}"><button class="btn btn-brand" id="cp">Copy link</button></div>
    <p class="text-secondary small mt-2 mb-0">Only people the super admin has added as users can open the data.</p>`})},
+ /* --- your own profile --- */
+ profile(sess,canRename){
+  return this.modalShell({c:ROLE_COL[sess.role],size:'',
+   title:'<h2 class="h5 fw-bold mb-0">👤 My profile</h2>',
+   body:`<div class="d-flex gap-3 align-items-center mb-3"><span class="av" style="background:${avc(sess.name)}">${esc(sess.name[0]||'?')}</span>`
+    +`<div><div class="fw-semibold">${esc(sess.name)}</div><div class="text-secondary small">${esc(sess.email)}</div></div></div>`
+    +`<label class="form-label small fw-semibold text-secondary mb-1">Display name</label>`
+    +`<input class="form-control" id="p_name" value="${esc(sess.name)}" ${canRename?'':'disabled'}>`
+    +`<p class="text-secondary small mt-2 mb-3">This is the name colleagues see beside your sign-in.</p>`
+    +`<label class="form-label small fw-semibold text-secondary mb-1">Email</label>`
+    +`<input class="form-control" value="${esc(sess.email)}" disabled>`
+    +`<p class="text-secondary small mt-2 mb-0">Your email and role can only be changed by the super admin.`
+    +` Your role is <b>${ROLE_LBL[sess.role]}</b> – ${ROLE_DESC[sess.role].toLowerCase()}.</p>`,
+   foot:canRename?'<button class="btn btn-brand" id="p_save">Save name</button><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>':''})},
+
+ /* --- change your own password --- */
+ password(){
+  const fld=(lbl,id,hint)=>`<div class="mb-3"><label class="form-label small fw-semibold text-secondary mb-1">${lbl}</label>`
+   +`<input class="form-control" id="${id}" type="password" autocomplete="${id==='w_cur'?'current-password':'new-password'}">`
+   +(hint?`<div class="form-text">${hint}</div>`:'')+`</div>`;
+  return this.modalShell({c:'#0891b2',size:'',
+   title:'<h2 class="h5 fw-bold mb-0">🔑 Update password</h2>',
+   body:fld('Current password','w_cur')+fld('New password','w_new','At least 4 characters.')+fld('Confirm new password','w_new2')
+    +'<p class="text-secondary small mb-0">Changing it signs you out of your other devices.</p>',
+   foot:'<button class="btn btn-brand" id="w_save">Change password</button><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>'})},
+
  /* --- user management modal (super admin) --- */
  users(local){return this.modalShell({c:'#ec008c',title:'<h2 class="h5 fw-bold mb-0">👥 Users &amp; roles</h2><div class="text-secondary small">Only the super admin can add people and assign roles</div>',body:'<div id="ub"></div>'})},
  usersFile(list){const keep=['email','name','role','pw','at','by','id'];const rows=list.map(u=>JSON.stringify(Object.fromEntries(keep.filter(k=>u[k]!=null).map(k=>[k,u[k]]))));

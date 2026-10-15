@@ -385,18 +385,32 @@ var ACTIONS = {
 
   changePassword: function (body, ctx, e) {
     var row = findUser_(ctx.user.email);
+    /* 400, not 401: the person IS signed in, they just mistyped. A 401 here would make the
+       page think the session had expired and sign them out. */
     if (!row || !verifyPassword_(String(body.currentPassword || ''), row.password)) {
-      throw fail_(401, 'unauthorized', 'Your current password is not correct');
+      throw fail_(400, 'bad_current', 'Your current password is not correct');
     }
     var next = String(body.newPassword || '');
     if (next.length < 4) throw fail_(400, 'bad_password', 'The new password must be at least 4 characters');
     updateUserRow_(row.email, { password: hashPassword_(next), updatedAt: nowIso_() });
-    destroySessionsFor_(row.email);
-    var session = createSession_(row.email, e);
+    /* Your other devices are signed out, but the one you are using stays signed in. */
+    destroySessionsFor_(row.email, ctx.token);
     audit_('password.change', row.email, row.role, row.email, '');
-    return { ok: true, token: session.token, expiresAt: session.expiresAt };
+    return { ok: true, message: 'Your password has been changed.' };
   },
 
+
+  /** Change your own display name. Your email and role are not touched here. */
+  updateProfile: function (body, ctx) {
+    var name = String(body.name || '').trim();
+    if (!name) throw fail_(400, 'bad_name', 'Enter a name');
+    if (name.length > 120) throw fail_(400, 'bad_name', 'That name is too long');
+    return withLock_(function () {
+      updateUserRow_(ctx.user.email, { name: name, updatedAt: nowIso_() });
+      audit_('profile.update', ctx.user.email, ctx.user.role, ctx.user.email, 'name');
+      return publicUser_(findUser_(ctx.user.email));
+    });
+  },
 
   /* ---------- forgotten password ---------- */
 

@@ -294,3 +294,21 @@ test('an unconfigured SMTP transport fails with a readable message', async () =>
   );
   Object.assign(config.mail, previous);
 });
+
+/* ---------------------------------------------------------------- own profile */
+test('profile: a signed-in person can rename themselves but not change their role', async () => {
+  const email = await newUser('viewer');
+  const token = await login(email, 'startpw1');
+
+  const res = await call('POST', '/api/auth/profile', { token, body: { name: 'Renamed Person' } });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.name, 'Renamed Person');
+  assert.equal(res.body.role, 'viewer');
+
+  /* role is ignored here even if sent */
+  await call('POST', '/api/auth/profile', { token, body: { name: 'Again', role: 'superadmin' } });
+  assert.equal((await call('GET', '/api/auth/me', { token })).body.user.role, 'viewer');
+
+  assert.equal((await call('POST', '/api/auth/profile', { token, body: { name: '   ' } })).body.error.code, 'bad_name');
+  assert.equal((await call('POST', '/api/auth/profile', { body: { name: 'Nobody' } })).status, 401);
+});

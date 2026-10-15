@@ -278,12 +278,15 @@ test('repeated wrong passwords are throttled', () => {
 
 test('changing your own password needs the current one', () => {
   const { call, tokens } = freshWorld();
-  assert.equal(call('changePassword', {
-    token: tokens.admin, currentPassword: 'nope', newPassword: 'longenough',
-  }).error.code, 'unauthorized');
+  const refused = call('changePassword', { token: tokens.admin, currentPassword: 'nope', newPassword: 'longenough' });
+  assert.equal(refused.error.code, 'bad_current');
+  assert.equal(refused.error.status, 400, 'a mistyped password must not look like an expired session');
+  assert.equal(call('me', { token: tokens.admin }).user.email, 'amina@example.com', 'and must not sign them out');
 
   const ok = call('changePassword', { token: tokens.admin, currentPassword: 'adminpw', newPassword: 'adminpw2' });
-  assert.ok(ok.token, 'a fresh token comes back');
+  assert.equal(ok.ok, true);
+  assert.equal(call('me', { token: tokens.admin }).user.email, 'amina@example.com',
+    'the device you changed it on stays signed in');
   assert.equal(call('login', { email: 'amina@example.com', password: 'adminpw' }).error.code, 'unauthorized');
   assert.ok(call('login', { email: 'amina@example.com', password: 'adminpw2' }).token);
 });
@@ -522,4 +525,32 @@ test('forgot password: works without being signed in', () => {
   /* no token is passed anywhere in this test, which is the whole point */
   const res = call('forgotPassword', { email: 'amina@example.com' });
   assert.equal(res.ok, true);
+});
+
+/* ---------------------------------------------------------------- own profile */
+test('profile: anyone signed in can change their own name, but not their role', () => {
+  const { call, tokens } = freshWorld();
+
+  const updated = call('updateProfile', { token: tokens.viewer, name: 'Nadia R. Rahman' });
+  assert.equal(updated.name, 'Nadia R. Rahman');
+  assert.equal(updated.role, 'viewer', 'the role is untouched');
+  assert.equal(call('me', { token: tokens.viewer }).user.name, 'Nadia R. Rahman');
+
+  /* a role cannot be smuggled in through this endpoint */
+  call('updateProfile', { token: tokens.viewer, name: 'Nadia', role: 'superadmin' });
+  assert.equal(call('me', { token: tokens.viewer }).user.role, 'viewer');
+
+  assert.equal(call('updateProfile', { token: tokens.viewer, name: '  ' }).error.code, 'bad_name');
+  assert.equal(call('updateProfile', { name: 'Nobody' }).error.code, 'unauthorized');
+});
+
+test('changing your own password signs out your other devices only', () => {
+  const { call } = freshWorld();
+  const here = call('login', { email: 'vik@example.com', password: 'viewerpw' }).token;
+  const elsewhere = call('login', { email: 'vik@example.com', password: 'viewerpw' }).token;
+
+  assert.equal(call('changePassword', { token: here, currentPassword: 'viewerpw', newPassword: 'nextone1' }).ok, true);
+
+  assert.equal(call('me', { token: here }).user.email, 'vik@example.com', 'this device stays signed in');
+  assert.equal(call('me', { token: elsewhere }).user, null, 'the other device is signed out');
 });
