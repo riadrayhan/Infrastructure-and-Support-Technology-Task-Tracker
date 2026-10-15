@@ -25,6 +25,27 @@
   function readToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
   function writeToken(v) { try { v ? localStorage.setItem(TOKEN_KEY, v) : localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
 
+  /* A start or end date is a plain day, "2026-10-01". A spreadsheet made before the backend
+     kept those columns as text stores them as real dates instead, and hands them back as the
+     local midnight – which is the evening before in UTC, so the day read back an hour-zone to
+     the east was one short. Reading the day off the viewer's own clock puts it right without
+     anybody having to touch the spreadsheet. */
+  function asDay(value) {
+    var text = String(value === undefined || value === null ? '' : value);
+    if (!/^\d{4}-\d{2}-\d{2}T/.test(text)) return text;
+    var d = new Date(text);
+    if (isNaN(d.getTime())) return text;
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+
+  function itemIn(item) {
+    if (!item || typeof item !== 'object') return item;
+    if (item.sd !== undefined) item.sd = asDay(item.sd);
+    if (item.e !== undefined) item.e = asDay(item.e);
+    return item;
+  }
+
   function GasError(status, code, message) {
     var err = new Error(message);
     err.status = status; err.code = code;
@@ -278,7 +299,7 @@
       try {
         if (collection === 'items') {
           var data = await this.call('listItems');
-          this.cache.items = (data && data.items) || [];
+          this.cache.items = (((data && data.items) || [])).map(itemIn);
           this.emit('items');
         } else if (collection === 'taskhist') {
           var arch = await this.call('listArchive');

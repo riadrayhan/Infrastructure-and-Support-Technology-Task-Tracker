@@ -95,6 +95,8 @@ var RESET_REQUEST_WINDOW_MIN = 60;
 function setupTracker() {
   var ss = spreadsheet_();
   Object.keys(SHEETS).forEach(function (key) { sheet_(key); });
+  /* Safe to repeat: it also fixes the date columns of a sheet made by an earlier version. */
+  Object.keys(SHEETS).forEach(function (key) { markDayColumnsAsText_(key); });
 
   var props = PropertiesService.getScriptProperties();
   var email = (props.getProperty('SEED_EMAIL') || 'admin@tracker.com').toLowerCase();
@@ -1196,6 +1198,12 @@ function sheet_(key) {
     sh = ss.insertSheet(spec.name);
     sh.getRange(1, 1, 1, spec.headers.length).setValues([spec.headers]).setFontWeight('bold');
     sh.setFrozenRows(1);
+    spec.headers.forEach(function (header, i) {
+      if (DAY_COLUMNS[header]) {
+        try { sh.getRange(2, i + 1, Math.max(sh.getMaxRows() - 1, 1), 1).setNumberFormat('@'); }
+        catch (err) {}
+      }
+    });
   }
   return sh;
 }
@@ -1211,12 +1219,51 @@ function readTable_(key) {
     var object = {};
     spec.headers.forEach(function (header, i) {
       var v = row[i];
-      object[header] = (v instanceof Date) ? v.toISOString() : (v === null || v === undefined ? '' : String(v));
+      object[header] = (v instanceof Date) ? dateOut_(header, v)
+        : (v === null || v === undefined ? '' : String(v));
     });
     return object;
   }).filter(function (o) {
     /* Skip blank lines left behind by manual edits. */
     return Object.keys(o).some(function (k) { return String(o[k]).length; });
+  });
+}
+
+/* Columns the page sends as a plain day, "2026-10-01", with no time and no timezone. */
+var DAY_COLUMNS = { sd: true, e: true };
+
+/** The spreadsheet's own timezone – the one Sheets uses when it parses a typed date. */
+function timeZone_() {
+  try { return spreadsheet_().getSpreadsheetTimeZone(); }
+  catch (err) { return Session.getScriptTimeZone(); }
+}
+
+/**
+ * A cell that came back as a Date, turned into the text the page expects.
+ *
+ * Sheets treats a typed "2026-10-01" as a date and hands it back as midnight local time, so
+ * east of Greenwich toISOString() reports the evening BEFORE – the start date of a project
+ * read back a day early. Formatting in the spreadsheet's timezone undoes exactly that, and it
+ * also tidies up dates somebody typed into the sheet by hand.
+ */
+function dateOut_(header, value) {
+  if (DAY_COLUMNS[header]) {
+    try { return Utilities.formatDate(value, timeZone_(), 'yyyy-MM-dd'); }
+    catch (err) { /* fall through to the timestamp form */ }
+  }
+  return value.toISOString();
+}
+
+/* Writing "2026-10-01" into a cell is the same as typing it, so Sheets would convert it to a
+   date and the round trip above would be needed on every read. Keeping those columns as plain
+   text means the sheet shows, exports and sorts the day exactly as it was entered. */
+function markDayColumnsAsText_(key) {
+  var spec = SHEETS[key];
+  var sh = sheet_(key);
+  var rows = Math.max(sh.getMaxRows() - 1, 1);
+  spec.headers.forEach(function (header, i) {
+    if (!DAY_COLUMNS[header]) return;
+    try { sh.getRange(2, i + 1, rows, 1).setNumberFormat('@'); } catch (err) {}
   });
 }
 

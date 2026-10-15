@@ -554,3 +554,46 @@ test('changing your own password signs out your other devices only', () => {
   assert.equal(call('me', { token: here }).user.email, 'vik@example.com', 'this device stays signed in');
   assert.equal(call('me', { token: elsewhere }).user, null, 'the other device is signed out');
 });
+
+test('a start and end date come back as the days that were entered', () => {
+  /* Sheets treats "2026-10-01" in a cell as a date, and a spreadsheet east of Greenwich hands
+     it back as midnight local time – the evening before in UTC. Read back naively, every
+     project started and ended a day early. */
+  const { call, tokens } = freshWorld();
+
+  const made = call('saveItem', {
+    token: tokens.superadmin,
+    item: {
+      type: 'Project', title: 'Branch switch refresh', f1: 'Jason',
+      s: 'Ongoing', pri: 'High', sd: '2026-10-01', e: '2026-12-20',
+    },
+  });
+  assert.equal(made.sd, '2026-10-01');
+  assert.equal(made.e, '2026-12-20');
+
+  const stored = call('listItems', { token: tokens.superadmin }).items
+    .find(i => i.id === made.id);
+  assert.equal(stored.sd, '2026-10-01', 'the start date must survive the trip to the sheet');
+  assert.equal(stored.e, '2026-12-20', 'and so must the end date');
+  assert.equal(stored.createdAt.slice(0, 4), String(new Date().getFullYear()),
+    'timestamps stay full ISO, they are not days');
+});
+
+test('a day typed into the sheet by hand is read as that day', () => {
+  /* Somebody editing the spreadsheet directly gets a real date in the cell, whatever the column
+     format says, so the read side has to cope with one on its own. */
+  const { call, tokens, spreadsheet } = freshWorld();
+  const made = call('saveItem', {
+    token: tokens.superadmin,
+    item: { type: 'Task', title: 'Swap the UPS battery', f1: 'Riad', s: 'Ongoing', pri: 'Mid' },
+  });
+
+  const sheet = spreadsheet.getSheetByName('Items');
+  const endColumn = 9;                                    // id,type,title,s,pri,f1,f2,sd,e
+  const row = sheet.rows.findIndex(line => line[0] === made.id) + 1;
+  sheet.getRange(row, endColumn, 1, 1)
+    .setValues([[new Date(Date.parse('2026-11-05T00:00:00Z') - 6 * 3600 * 1000)]]);
+
+  const stored = call('listItems', { token: tokens.superadmin }).items.find(i => i.id === made.id);
+  assert.equal(stored.e, '2026-11-05');
+});

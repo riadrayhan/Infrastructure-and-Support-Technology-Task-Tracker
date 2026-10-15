@@ -10,6 +10,22 @@ const crypto = require('node:crypto');
 
 const CODE = path.resolve(__dirname, '..', 'Code.gs');
 
+/* The fake spreadsheet sits east of Greenwich, like the real one, because that is what makes a
+   date written as text come back as the previous evening. Six hours is Asia/Dhaka. */
+const TZ_OFFSET_HOURS = 6;
+const FAKE_TIME_ZONE = 'Asia/Dhaka';
+const DAY_TEXT = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Sheets stores a typed date as a date, not as the text that was typed – unless the cell is
+    formatted as plain text. Reproducing that here is what keeps the backend honest about it. */
+function asSheetsWouldStore(value, format) {
+  if (format === '@') return value;
+  if (typeof value === 'string' && DAY_TEXT.test(value)) {
+    return new Date(Date.parse(value + 'T00:00:00Z') - TZ_OFFSET_HOURS * 3600 * 1000);
+  }
+  return value;
+}
+
 /* ---------- a spreadsheet made of arrays ---------- */
 class FakeRange {
   constructor(sheet, row, col, numRows, numCols) {
@@ -29,8 +45,15 @@ class FakeRange {
     values.forEach((line, r) => {
       const target = this.row - 1 + r;
       while (this.sheet.rows.length <= target) this.sheet.rows.push([]);
-      line.forEach((v, c) => { this.sheet.rows[target][this.col - 1 + c] = v; });
+      line.forEach((v, c) => {
+        const column = this.col - 1 + c;
+        this.sheet.rows[target][column] = asSheetsWouldStore(v, this.sheet.formats[column]);
+      });
     });
+    return this;
+  }
+  setNumberFormat(format) {
+    for (let c = 0; c < this.numCols; c++) this.sheet.formats[this.col - 1 + c] = format;
     return this;
   }
   clearContent() {
@@ -45,7 +68,8 @@ class FakeRange {
 }
 
 class FakeSheet {
-  constructor(name) { this.name = name; this.rows = []; }
+  constructor(name) { this.name = name; this.rows = []; this.formats = []; }
+  getMaxRows() { return Math.max(this.rows.length, 1000); }
   getLastRow() {
     for (let i = this.rows.length - 1; i >= 0; i--) {
       if ((this.rows[i] || []).some(v => String(v ?? '').length)) return i + 1;
@@ -53,7 +77,10 @@ class FakeSheet {
     return 0;
   }
   getRange(row, col, numRows, numCols) { return new FakeRange(this, row, col, numRows, numCols); }
-  appendRow(values) { this.rows[this.getLastRow()] = values.slice(); }
+  appendRow(values) {
+    /* A value appended to a column formatted as plain text stays text, as in Sheets. */
+    this.rows[this.getLastRow()] = values.map((v, c) => asSheetsWouldStore(v, this.formats[c]));
+  }
   deleteRow(index) { this.rows.splice(index - 1, 1); }
   setFrozenRows() { return this; }
   getName() { return this.name; }
@@ -64,6 +91,7 @@ class FakeSpreadsheet {
   getSheetByName(name) { return this.sheets.get(name) || null; }
   insertSheet(name) { const s = new FakeSheet(name); this.sheets.set(name, s); return s; }
   getUrl() { return 'https://docs.google.com/spreadsheets/d/fake'; }
+  getSpreadsheetTimeZone() { return FAKE_TIME_ZONE; }
 }
 
 /* ---------- load Code.gs with the Apps Script services replaced ---------- */
@@ -143,7 +171,12 @@ function load({ logs = [], outbox = [] } = {}) {
         uuidCounter += 1;
         return crypto.randomUUID() + '-' + uuidCounter;
       },
-      formatDate(date, _tz, _format) { return date.toISOString().slice(0, 10); },
+      formatDate(date, tz, _format) {
+        /* Only the one format the backend asks for, but the timezone is honoured – that is the
+           whole point of the call. */
+        const shift = tz === FAKE_TIME_ZONE ? TZ_OFFSET_HOURS * 3600 * 1000 : 0;
+        return new Date(date.getTime() + shift).toISOString().slice(0, 10);
+      },
     },
   };
   sandbox.globalThis = sandbox;
