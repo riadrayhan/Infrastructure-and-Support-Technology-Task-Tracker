@@ -180,38 +180,67 @@ const View={
    return this.ph('👤',esc(SEL),'Projects, recurring items and tasks – Ongoing, On Hold and Done','#7c3aed',xbtns()+'<button class="btn btn-outline-secondary" data-a="person" data-v="">← All members</button>')+`<div class="row g-3"><div class="col-12 col-lg-5">${card('#7c3aed',this.person(SEL,'fs-5')+this.mt(r))}</div><div class="col-12 col-lg-7">${card('#7c3aed',ST.map(grp).join('')||empty('No items yet'))}</div></div>`}
   return this.ph('👥','Team','Workload of every member – click a card for the full list','#7c3aed',xbtns())+`<div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">${Model.people().map((n,i)=>`<div class="col a-up" style="--i:${i}">${card(avc(n),this.person(n)+this.mt(Model.counts(n)),'pc" data-a="person" data-v="'+esc(n))}</div>`).join('')||'<div class="col">'+empty('No team members yet – create a project or task to get started.')+'</div>'}</div><p class="text-secondary small mt-3">Counts include items where the person is Focal-1 or Focal-2. Click a member for full list.</p>`},
 
- /* --- chat: colleagues on the left, the conversation on the right.
-        `live` is null until the chat server is running; the design is shown either way. --- */
- chat(live){
-  const connected=Boolean(live&&live.connected);
+ /* --- chat lives in a floating panel, not a page --- */
+
+ /** Show or hide the floating button, following the sign-in state. */
+ chatDock(show){
+  const dock=$('#chatdock');if(dock)dock.classList.toggle('d-none',!show);
+  if(!show)this.chatOpen(false)},
+
+ /** Open or close the popup. The scrim only dims the page on a narrow screen. */
+ chatOpen(open){
+  const pop=$('#chatpop'),fab=$('#chatfab'),scrim=$('#chatscrim');
+  if(!pop||!fab)return;
+  if(open){
+   pop.hidden=false;scrim.hidden=false;
+   /* a frame later, so the browser animates from the closed state rather than jumping */
+   requestAnimationFrame(()=>{pop.classList.add('open');scrim.classList.add('open')});
+  }else{
+   pop.classList.remove('open');scrim.classList.remove('open');
+   setTimeout(()=>{if(!pop.classList.contains('open')){pop.hidden=true;scrim.hidden=true}},260);
+  }
+  pop.setAttribute('aria-hidden',open?'false':'true');
+  fab.setAttribute('aria-expanded',open?'true':'false');
+  fab.classList.toggle('open',open)},
+
+ chatIsOpen(){const pop=$('#chatpop');return Boolean(pop&&pop.classList.contains('open'))},
+
+ /** Which half of the panel is showing: the colleague list, or one conversation. */
+ chatView(mode,person,live){
+  const pop=$('#chatpop');if(!pop)return;
+  pop.classList.toggle('in-convo',mode==='convo');
+  const back=$('#c_back');if(back)back.hidden=mode!=='convo';
+  const title=$('#c_head');
+  if(title){
+   title.innerHTML=mode==='convo'&&person
+    ? `<span class="av av-sm" style="background:${avc(person.name)}">${esc((person.name||'?')[0])}</span>
+       <span class="chat-pop-who"><b>${esc(person.name)}</b><span id="c_sub">${esc(person.email)}</span></span>`
+    : `<b>Chat</b><span>Message a colleague directly</span>`;
+  }
   const ready=Boolean(live&&live.available);
-  return this.ph('💬','Chat','Message a colleague directly · messages are kept with the rest of the data','#0891b2',
-   `<span class="badge rounded-pill ${connected?'text-bg-success':'text-bg-secondary'}" id="c_state">${connected?'● Live':'○ Offline'}</span>`)
-  +(ready?'':`<div class="alert chat-preview-note d-flex flex-wrap align-items-center gap-2" role="status">
-     <span class="fs-5">💬</span>
-     <span><b>Preview.</b> This is how chat looks. Messages start moving between people once the
-     Node.js server is running, which is what holds the live connection open.</span></div>`)
-  +`<div class="row g-3 chat">
-    <div class="col-12 col-lg-4">
-     <input class="form-control mb-2" id="c_search" placeholder="Search colleagues…" autocomplete="off">
-     <div class="list-group chat-people" id="c_list"></div>
-    </div>
-    <div class="col-12 col-lg-8">
-     <div class="card tcard chat-pane" style="--c:#0891b2">
-      <div class="card-header d-flex align-items-center gap-2" id="c_head">
-       <span class="text-secondary small">Choose a colleague to start talking</span>
-      </div>
-      <div class="chat-log" id="c_log"></div>
-      <div class="card-footer">
-       <div class="chat-typing text-secondary small" id="c_typing">&nbsp;</div>
-       <div class="input-group">
-        <input class="form-control" id="c_msg" placeholder="${ready?'Write a message…':'Live chat starts when the server is running'}" autocomplete="off" disabled maxlength="4000">
-        <button class="btn btn-brand" id="c_send" disabled>Send</button>
-       </div>
-      </div>
-     </div>
-    </div>
-   </div>`},
+  const box=$('#c_msg'),send=$('#c_send');
+  if(box){
+   const can=ready&&mode==='convo';
+   box.disabled=!can;send.disabled=!can;
+   box.placeholder=ready?'Write a message…':'Live chat starts when the server is running';
+  }},
+
+ /** The banner shown while there is no chat server, and the live badge. */
+ chatStatus(live){
+  const note=$('#c_note'),badge=$('#c_state');
+  const ready=Boolean(live&&live.available),connected=Boolean(live&&live.connected);
+  if(badge){badge.textContent=connected?'● Live':'○ Offline';badge.classList.toggle('on',connected)}
+  if(note){
+   note.hidden=ready;
+   if(!ready)note.innerHTML=`<b>Preview.</b> This is how chat looks. Messages start moving between
+     people once the chat server is running.`;
+  }},
+
+ /** The number on the floating button. */
+ chatBadge(n){
+  const badge=$('#c_fabbadge');if(!badge)return;
+  badge.hidden=!n;badge.textContent=n>99?'99+':String(n);
+  const fab=$('#chatfab');if(fab)fab.classList.toggle('has-unread',Boolean(n))},
 
  /** The list of colleagues, newest conversation first. */
  chatContacts(contacts,openWith,filter){
@@ -234,7 +263,7 @@ const View={
  /** The conversation. Mine on the right, theirs on the left. */
  chatMessages(messages,me,person){
   const log=$('#c_log');if(!log)return;
-  if(!person){log.innerHTML=`<div class="chat-empty text-secondary">Choose a colleague on the left to start talking.</div>`;return}
+  if(!person){log.innerHTML=`<div class="chat-empty text-secondary">Choose a colleague to start talking.</div>`;return}
   if(!messages.length){log.innerHTML=`<div class="chat-empty text-secondary">No messages yet. Say hello to ${esc(person.name)}.</div>`;return}
 
   let lastDay='';
@@ -252,7 +281,7 @@ const View={
  /** A short illustrative exchange, so the layout can be seen before anyone has written anything. */
  chatPreviewMessages(person,me){
   const log=$('#c_log');if(!log)return;
-  if(!person){log.innerHTML=`<div class="chat-empty text-secondary">Choose a colleague on the left to see the conversation view.</div>`;return}
+  if(!person){log.innerHTML=`<div class="chat-empty text-secondary">Choose a colleague to see the conversation.</div>`;return}
   const clock=mins=>{const d=new Date(Date.now()-mins*60000);return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})};
   const sample=[
    {mine:false,text:`Morning. Any update on the DR site?`,at:clock(42)},
@@ -266,12 +295,11 @@ const View={
    +`<div class="chat-day"><span>Nothing real yet – this is a preview</span></div>`;
   log.scrollTop=log.scrollHeight},
 
+ /** Just the line under the name: typing, online, or their address. */
  chatHeader(person,online,typing){
-  const head=$('#c_head');if(!head)return;
-  if(!person){head.innerHTML='<span class="text-secondary small">Choose a colleague to start talking</span>';return}
-  head.innerHTML=`<span class="av av-sm" style="background:${avc(person.name)}">${esc((person.name||'?')[0])}</span>
-   <span><b>${esc(person.name)}</b> <span class="badge rounded-pill b" style="--c:${ROLE_COL[person.role]}">${ROLE_LBL[person.role]}</span>
-   <span class="d-block text-secondary small">${typing?'typing…':(online?'online':esc(person.email))}</span></span>`},
+  const sub=$('#c_sub');if(!sub||!person)return;
+  sub.textContent=typing?'typing…':(online?'online':person.email);
+  sub.classList.toggle('typing',Boolean(typing))},
 
  /* --- modals (return the element; Presenter wires the buttons) --- */
  detail(x,w){

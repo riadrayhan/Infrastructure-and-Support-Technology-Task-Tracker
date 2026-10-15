@@ -6,16 +6,7 @@ const Presenter={
  TABS:[['overview','Overview'],['projects','Projects'],['recurring','Recurring'],['tasks','Tasks'],['team','Team']],
  chat:null,CF:'',
  CP:'',                           /* the colleague selected while chat is only a preview */
- /** Chat is always on the tab strip; without a server it shows the design as a preview. */
- tabs(){return this.TABS.concat([['chat','Chat']])},
- /** Colleagues to list: real accounts when we have them, otherwise the people named on items. */
- chatPeople(){
-  const me=Model.session||{};
-  const accounts=(Model.users||[]).filter(u=>u.email&&u.email!==me.email)
-   .map(u=>({email:u.email,name:u.name||u.email,role:u.role||'viewer'}));
-  if(accounts.length)return accounts;
-  return Model.people().filter(n=>n&&n!==me.name)
-   .map(n=>({email:n.toLowerCase().replace(/[^a-z0-9]+/g,'.')+'@example.com',name:n,role:'viewer'}))},
+ tabs(){return this.TABS},        /* chat is a floating button, not a tab */
  PT:{projects:'Project',recurring:'Drive'},
  THEMES:[{id:'light',label:'Light',icon:'☀️',base:'light',swatch:'linear-gradient(135deg,#f3f5fb 45%,#6d28d9 45%,#ec008c)'},
          {id:'dark',label:'Dark',icon:'🌙',base:'dark',swatch:'linear-gradient(135deg,#0a0f1e 45%,#6d28d9 45%,#ec008c)'},
@@ -28,11 +19,10 @@ const Presenter={
  /* --- navigation --- */
  go(t){const changed=t!==this.tab;this.tab=t;if(changed)window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
   if(!Model.session){View.nav([],'');View.gate(this.gate.kind,this.gate.msg,Model.store&&Model.store.kind,this.canEmailCode());this.bindGate();return}
-  View.nav(this.tabs(),t,{chat:this.chat?this.chat.totalUnread():0});
+  View.nav(this.tabs(),t);
   const bt=this.PT[t];
-  View.page(bt?View.board(bt,this.F):{overview:()=>View.overview(),tasks:()=>View.tasks(this.TF),team:()=>View.team(this.SEL),chat:()=>View.chat(this.chat)}[t]());
-  if(bt)this.bindBoard(bt);if(t==='tasks')this.bindTasks();if(t==='overview')View.countUp();
-  if(t==='chat'){if(this.chat&&this.chat.available)this.bindChat();else this.bindChatPreview()}},
+  View.page(bt?View.board(bt,this.F):{overview:()=>View.overview(),tasks:()=>View.tasks(this.TF),team:()=>View.team(this.SEL)}[t]());
+  if(bt)this.bindBoard(bt);if(t==='tasks')this.bindTasks();if(t==='overview')View.countUp()},
  draw(){this.go(this.tab)},
 
  /* the filtered lists – shared by the page rendering and the export */
@@ -117,6 +107,7 @@ const Presenter={
   Model.start(e=>this.syncStatus(e));this.syncStatus();View.who(Model.session,this.usesPasswords());this.tab='overview';this.draw();
   this.startChat()},
  async signOut(){if(this.chat){this.chat.stop();this.chat=null}
+  View.chatDock(false);this.CP='';this.CF='';
   if(this.isApi()){try{await Model.store.logout()}catch(e){}}
   Model.session=null;try{localStorage.removeItem('tracker.session')}catch(e){}View.who(null,this.usesPasswords());this.setGate('login')},
  /* Only a backend can email a code; the browser-only build cannot. */
@@ -191,58 +182,90 @@ const Presenter={
   if(!this.gate.rq){this.gate.rq=true;try{await Model.store.set('requests',me.id,{id:me.id,email:me.email||'',name:me.name||'',at:today10()})}catch(e){}}
   this.setGate('blocked',`You do not have access yet. Ask the super admin to add you${me.email?' ('+me.email+')':''} as a user. This page opens automatically once a role is assigned.`)},
 
- /* ---- chat ---- */
- bindChat(){const chat=this.chat;if(!chat)return;
-  View.chatContacts(chat.contacts,chat.openWith,this.CF);
-  View.chatHeader(chat.contact(chat.openWith),chat.online.includes(chat.openWith),chat.isTyping(chat.openWith));
-  View.chatMessages(chat.messages,chat.me||{},chat.contact(chat.openWith));
+ /* ---- chat, in the floating panel ---- */
 
-  const search=$('#c_search');if(search){search.value=this.CF;
-   search.oninput=()=>{this.CF=search.value;View.chatContacts(chat.contacts,chat.openWith,this.CF)}}
+ /** Draw whatever the panel should show right now. */
+ paintChat(){
+  const chat=this.chat,live=this.live();
+  View.chatStatus(live);
+  const preview=!live;
+  const contacts=preview
+   ? this.chatPeople().map(p=>({...p,unread:0,online:false,lastAt:'',lastBody:'',lastFromMe:false}))
+   : chat.contacts;
+  const selected=preview?this.CP:chat.openWith;
+  if(preview&&selected&&!contacts.some(c=>c.email===selected))this.CP='';
+  const person=contacts.find(c=>c.email===(preview?this.CP:chat.openWith))||null;
+
+  View.chatContacts(contacts,person?person.email:'',this.CF);
+  View.chatView(person?'convo':'list',person,live);
+  if(person)View.chatHeader(person,!preview&&chat.online.includes(person.email),!preview&&chat.isTyping(person.email));
+  if(preview)View.chatPreviewMessages(person,Model.session||{});
+  else View.chatMessages(chat.messages,chat.me||{},person);
+  View.chatBadge(live?chat.totalUnread():0);
+  this.bindChatControls()},
+
+ /** The live chat client, or null while it is only a preview. Looked up when a handler runs,
+     never captured: the panel is wired before the client has finished connecting. */
+ live(){return this.chat&&this.chat.available?this.chat:null},
+
+ /** The search box and the composer. Bound once; they read the current state each time. */
+ bindChatControls(){
+  const search=$('#c_search');
+  if(search&&!search.dataset.bound){search.dataset.bound='1';
+   search.oninput=()=>{this.CF=search.value;this.paintChat()}}
+  if(search)search.value=this.CF;
 
   const box=$('#c_msg'),send=$('#c_send');
-  const ready=Boolean(chat.openWith);
-  if(box){box.disabled=!ready;send.disabled=!ready;
-   if(ready)setTimeout(()=>box.focus(),50);
+  if(box&&!box.dataset.bound){box.dataset.bound='1';
    let last=0;
-   const post=async()=>{const text=box.value.trim();if(!text)return;
-    box.value='';chat.typing(chat.openWith,false);last=0;   /* typing again right away is signalled */
-    try{await chat.send(chat.openWith,text)}catch(e){View.toast((e&&e.message)||'Could not send');box.value=text}};
+   const post=async()=>{const live=this.live();const text=box.value.trim();
+    if(!text||!live||!live.openWith)return;
+    box.value='';live.typing(live.openWith,false);last=0;
+    try{await live.send(live.openWith,text)}catch(e){View.toast((e&&e.message)||'Could not send');box.value=text}};
    send.onclick=post;
    box.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();post()}};
-   box.oninput=()=>{const now=Date.now();if(now-last>1500){last=now;chat.typing(chat.openWith,true)}}}},
+   box.oninput=()=>{const live=this.live();if(!live||!live.openWith)return;
+    const now=Date.now();if(now-last>1500){last=now;live.typing(live.openWith,true)}}}},
 
- bindChatPreview(){const people=this.chatPeople(),me=Model.session||{};
-  const contacts=people.map(p=>({email:p.email,name:p.name,role:p.role,unread:0,online:false,lastAt:'',lastBody:'',lastFromMe:false}));
-  if(this.CP&&!contacts.some(c=>c.email===this.CP))this.CP='';
-  View.chatContacts(contacts,this.CP,this.CF);
-  const chosen=contacts.find(c=>c.email===this.CP)||null;
-  View.chatHeader(chosen,false,false);
-  View.chatPreviewMessages(chosen,me);
-  const search=$('#c_search');if(search){search.value=this.CF;
-   search.oninput=()=>{this.CF=search.value;View.chatContacts(contacts,this.CP,this.CF)}}},
+ toggleChat(){View.chatIsOpen()?this.closeChat():this.openChat()},
+ openChat(){View.chatOpen(true);this.paintChat();
+  setTimeout(()=>{const s=$('#c_search');if(s&&!View.chatIsOpen&&s)s.focus()},120)},
+ closeChat(){View.chatOpen(false)},
+ backToContacts(){if(this.chat)this.chat.openWith='';this.CP='';this.paintChat()},
 
  async openChatWith(email){const chat=this.chat;
-  if(!chat||!chat.available){this.CP=email;this.bindChatPreview();return}
+  if(!View.chatIsOpen())View.chatOpen(true);
+  if(!chat||!chat.available){this.CP=email;this.paintChat();return}
   try{await chat.openConversation(email)}catch(e){View.toast((e&&e.message)||'Could not open that conversation')}
-  if(this.tab!=='chat')this.go('chat');else this.bindChat()},
+  this.paintChat();
+  setTimeout(()=>{const b=$('#c_msg');if(b&&!b.disabled)b.focus()},120)},
 
- /** Start chat once somebody is signed in, and keep the screen in step with the socket. */
+ /** Colleagues to list: real accounts when we have them, otherwise the people named on items. */
+ chatPeople(){
+  const me=Model.session||{};
+  const accounts=(Model.users||[]).filter(u=>u.email&&u.email!==me.email)
+   .map(u=>({email:u.email,name:u.name||u.email,role:u.role||'viewer'}));
+  if(accounts.length)return accounts;
+  return Model.people().filter(n=>n&&n!==me.name)
+   .map(n=>({email:n.toLowerCase().replace(/[^a-z0-9]+/g,'.')+'@example.com',name:n,role:'viewer'}))},
+
+ /** Start the live side once somebody is signed in, and keep the panel in step. */
  async startChat(){
+  View.chatDock(Boolean(Model.session));
+  this.paintChat();
   if(typeof ChatClient==='undefined')return;
   if(!this.isApi()||!Model.store.supportsChat)return;   /* chat needs the Node server's socket */
   if(this.chat)this.chat.stop();
   const chat=new ChatClient(Model.store);this.chat=chat;
-  chat.on('contacts',()=>{if(this.tab==='chat')View.chatContacts(chat.contacts,chat.openWith,this.CF);
-   View.nav(this.tabs(),this.tab,{chat:chat.totalUnread()})});
-  chat.on('messages',()=>{if(this.tab==='chat'){View.chatMessages(chat.messages,chat.me||{},chat.contact(chat.openWith));
-   View.chatHeader(chat.contact(chat.openWith),chat.online.includes(chat.openWith),chat.isTyping(chat.openWith))}});
-  chat.on('typing',()=>{if(this.tab==='chat')View.chatHeader(chat.contact(chat.openWith),chat.online.includes(chat.openWith),chat.isTyping(chat.openWith))});
-  chat.on('status',s=>{const b=$('#c_state');if(b){b.className='badge rounded-pill '+(s.connected?'text-bg-success':'text-bg-secondary');b.textContent=s.connected?'● Live':'○ Offline'}});
-  chat.on('unread',n=>View.nav(this.tabs(),this.tab,{chat:n}));
+  const repaint=()=>{if(View.chatIsOpen())this.paintChat();else View.chatBadge(chat.totalUnread())};
+  chat.on('contacts',repaint);
+  chat.on('messages',repaint);
+  chat.on('typing',repaint);
+  chat.on('status',()=>{View.chatStatus(chat.available?chat:null)});
+  chat.on('unread',n=>View.chatBadge(n));
   chat.on('notify',m=>{const who=chat.contact(m.from);View.toast(`💬 ${who?who.name:m.from}: ${String(m.body).slice(0,60)}`)});
-  const ok=await chat.start();
-  if(ok)View.nav(this.tabs(),this.tab,{chat:chat.totalUnread()})},
+  await chat.start();
+  this.paintChat()},
 
  /* ---- your own profile and password ---- */
  openProfile(){const sess=Model.session;if(!sess)return;
@@ -328,6 +351,11 @@ const Presenter={
   /* modals: backdrop click and Escape are handled by Bootstrap */
   View.themes=this.THEMES;
   this.setTheme(document.documentElement.getAttribute('data-theme')||'light',false);View.init();
+  const fab=$('#chatfab');if(fab)fab.onclick=()=>this.toggleChat();
+  const close=$('#c_close');if(close)close.onclick=()=>this.closeChat();
+  const back=$('#c_back');if(back)back.onclick=()=>this.backToContacts();
+  const scrim=$('#chatscrim');if(scrim)scrim.onclick=()=>this.closeChat();
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&View.chatIsOpen()&&!document.querySelector('.modal.show'))this.closeChat()});
   Model.onChange(()=>{if(Model.session)this.draw()})},
 
  /* --- boot: pick the storage backend, then gate on identity --- */

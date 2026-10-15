@@ -198,3 +198,69 @@ tr.c td{transition:background .15s}
 
 .chat-preview-note{background:color-mix(in srgb,#0891b2 10%,var(--surface));border:1px solid color-mix(in srgb,#0891b2 35%,transparent);
   color:var(--bs-body-color);border-radius:14px;font-size:.86rem;padding:10px 14px}
+
+/* =====================================================================
+   Chat: a floating button at the bottom right, and the popup it opens.
+   ===================================================================== */
+.chat-dock{position:fixed;right:22px;bottom:22px;z-index:1045}
+
+/* ---- the button ---- */
+.chat-fab{position:relative;width:60px;height:60px;border:0;border-radius:50%;cursor:pointer;
+  background:var(--g-accent);color:#fff;font-size:26px;line-height:1;display:grid;place-items:center;
+  box-shadow:0 10px 26px color-mix(in srgb,var(--brand) 45%,transparent),0 2px 6px #0003;
+  transition:transform .25s cubic-bezier(.2,.9,.3,1.4),box-shadow .25s}
+.chat-fab:hover{transform:translateY(-3px) scale(1.05)}
+.chat-fab:active{transform:scale(.94)}
+.chat-fab .fab-icon{transition:transform .3s cubic-bezier(.2,.9,.3,1.4)}
+.chat-fab.open .fab-icon{transform:rotate(-18deg) scale(.9)}
+.chat-fab.has-unread{animation:fabNudge 2.4s ease-in-out infinite}
+@keyframes fabNudge{0%,88%,100%{transform:none}92%{transform:translateY(-5px)}96%{transform:translateY(-2px)}}
+.fab-badge{position:absolute;top:-2px;right:-2px;min-width:22px;height:22px;padding:0 6px;border-radius:11px;
+  background:#fff;color:var(--brand);font-size:.7rem;font-weight:800;display:grid;place-items:center;
+  box-shadow:0 2px 8px #0004}
+
+/* ---- the popup ---- */
+.chat-pop{position:absolute;right:0;bottom:76px;width:min(380px,calc(100vw - 32px));height:min(560px,calc(100vh - 140px));
+  display:flex;flex-direction:column;overflow:hidden;border-radius:20px;background:var(--surface);
+  border:1px solid var(--bs-border-color);
+  box-shadow:0 24px 60px #0000004d,0 4px 14px #0000002e;
+  transform-origin:bottom right;opacity:0;transform:translateY(14px) scale(.92);
+  transition:opacity .22s ease,transform .26s cubic-bezier(.2,.9,.3,1.35)}
+.chat-pop.open{opacity:1;transform:none}
+.chat-scrim{position:fixed;inset:0;background:#0007;opacity:0;transition:opacity .22s ease;backdrop-filter:blur(2px)}
+.chat-scrim.open{opacity:1}
+@media(min-width:576px){.chat-scrim{display:none}}
+
+.chat-pop-head{display:flex;align-items:center;gap:10px;padding:12px 14px;color:#fff;background:var(--g-hero);
+  background-size:200% 200%;animation:shift 18s ease infinite}
+.chat-pop-title{flex:1;min-width:0;display:flex;align-items:center;gap:9px}
+.chat-pop-title b{font-size:.98rem;display:block;line-height:1.2}
+.chat-pop-title span{font-size:.73rem;opacity:.85;display:block}
+.chat-pop-who{min-width:0}
+.chat-pop-who b,.chat-pop-who span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+#c_sub.typing{font-style:italic}
+.chat-live{font-size:.66rem;background:#ffffff2e;border:1px solid #ffffff40;border-radius:99px;padding:2px 8px;white-space:nowrap}
+.chat-live.on{background:#22c55e;border-color:#22c55e}
+.chat-back,.chat-x{border:0;background:#ffffff22;color:#fff;width:28px;height:28px;border-radius:50%;
+  cursor:pointer;display:grid;place-items:center;font-size:15px;line-height:1;transition:background .15s,transform .15s}
+.chat-back{font-size:22px}
+.chat-back:hover,.chat-x:hover{background:#ffffff3d;transform:scale(1.08)}
+.chat-pop-note{padding:9px 14px;font-size:.76rem;line-height:1.45;
+  background:color-mix(in srgb,#0891b2 14%,var(--surface));border-bottom:1px solid var(--bs-border-color)}
+
+/* two panes that slide: colleagues, then one conversation */
+.chat-pop-body{position:relative;flex:1;overflow:hidden}
+.chat-side,.chat-convo{position:absolute;inset:0;display:flex;flex-direction:column;
+  transition:transform .28s cubic-bezier(.2,.8,.3,1),opacity .2s ease}
+.chat-side{padding:10px 10px 0}
+.chat-convo{transform:translateX(100%);opacity:0;pointer-events:none}
+.chat-pop.in-convo .chat-side{transform:translateX(-28%);opacity:0;pointer-events:none}
+.chat-pop.in-convo .chat-convo{transform:none;opacity:1;pointer-events:auto}
+.chat-side .chat-people{flex:1;overflow-y:auto;margin-top:8px;border-radius:12px;max-height:none}
+.chat-convo .chat-log{flex:1}
+.chat-foot{padding:8px 10px 10px;border-top:1px solid var(--bs-border-color)}
+.chat-foot .btn-brand{padding-inline:14px}
+@media(max-width:575px){
+  .chat-dock{right:16px;bottom:16px}
+  .chat-pop{position:fixed;right:12px;left:12px;bottom:88px;width:auto;height:min(70vh,560px)}
+}
