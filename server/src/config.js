@@ -79,6 +79,23 @@ const config = {
       }
     : null,
 
+  /* Sending the "forgot password" code. 'console' just logs it, which needs no account. */
+  mail: {
+    transport: (process.env.MAIL_TRANSPORT || 'console').toLowerCase(),
+    host: process.env.MAIL_HOST || '',
+    port: num(process.env.MAIL_PORT, 587),
+    user: process.env.MAIL_USER || '',
+    pass: process.env.MAIL_PASS || '',
+    from: process.env.MAIL_FROM || process.env.MAIL_USER || 'tracker@localhost',
+    fromName: process.env.MAIL_FROM_NAME || 'Task and Project Tracker',
+  },
+
+  /* Forgotten-password codes */
+  resetCodeMinutes: num(process.env.RESET_CODE_MINUTES, 15),
+  resetMaxTries: num(process.env.RESET_MAX_TRIES, 5),
+  resetMaxRequests: num(process.env.RESET_MAX_REQUESTS, 5),
+  resetRequestWindowMs: num(process.env.RESET_REQUEST_WINDOW_MINUTES, 60) * 60 * 1000,
+
   bodyLimitBytes: num(process.env.BODY_LIMIT_BYTES, 512 * 1024),
   logRequests: bool(process.env.LOG_REQUESTS, true),
 

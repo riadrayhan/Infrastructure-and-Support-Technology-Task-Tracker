@@ -6,6 +6,9 @@ const users = require('../repos/users');
 const sessions = require('../repos/sessions');
 const audit = require('../repos/audit');
 const permissions = require('../permissions');
+const resets = require('../repos/resets');
+const mailer = require('../mailer');
+const { createLimiter } = require('../middleware');
 const { verifyPassword } = require('../crypto');
 const { readJson, sendJson, setCookie, clearCookie, clientIp, badRequest, unauthorized, tooMany } = require('../http');
 const { loginLimiter, requireUser } = require('../middleware');
@@ -21,7 +24,78 @@ function sessionPayload(user, csrf, expiresAt, token) {
   };
 }
 
+/* One address may only ask for a handful of codes per hour, so nobody can be mail-bombed. */
+const resetLimiter = createLimiter(config.resetMaxRequests, config.resetRequestWindowMs);
+
 function register(router) {
+
+  /* ---- POST /api/auth/forgot – email a six-digit code ---- */
+  router.post('/api/auth/forgot', async (req, res, ctx) => {
+    const body = await readJson(req);
+    const email = users.normalizeEmail(body.email);
+    const ip = clientIp(req);
+    if (!users.EMAIL_RE.test(email)) throw badRequest('Enter a valid email address', 'bad_email');
+
+    const gate = resetLimiter.hit(email);
+    if (!gate.ok) {
+      const err = tooMany(`Too many codes requested for that address. Try again in ${Math.ceil(gate.retryAfter / 60)} minute(s).`);
+      err.retryAfter = gate.retryAfter;
+      throw err;
+    }
+
+    const user = users.byEmail(email);
+    if (user) {
+      const code = resets.newCode();
+      resets.create(email, code);
+      const message = mailer.resetEmail(user.name, code, config.resetCodeMinutes);
+      try {
+        await mailer.send({ to: user.email, ...message });
+        audit.log({ actor: email, role: user.role, action: 'password.forgot', target: email, detail: 'code sent', ip });
+      } catch (e) {
+        resets.remove(email);
+        audit.log({ actor: email, action: 'password.forgot.failed', target: email, detail: String(e.message), ip });
+        throw new (require('../http').HttpError)(500, 'mail_failed',
+          'The code could not be emailed. Ask the super admin to reset your password instead.');
+      }
+    } else {
+      audit.log({ actor: email, action: 'password.forgot', target: email, detail: 'no such account', ip });
+    }
+
+    /* Deliberately the same answer either way, so this cannot be used to discover who has an account. */
+    sendJson(res, 200, {
+      ok: true,
+      message: `If that address has an account, a six-digit code is on its way. It expires in ${config.resetCodeMinutes} minutes.`,
+    });
+  });
+
+  /* ---- POST /api/auth/reset – the code plus a new password ---- */
+  router.post('/api/auth/reset', async (req, res, ctx) => {
+    const body = await readJson(req);
+    const email = users.normalizeEmail(body.email);
+    const code = String(body.code || '').replace(/\s+/g, '');
+    const next = String(body.newPassword || '');
+    const ip = clientIp(req);
+
+    if (next.length < 4) throw badRequest('The new password must be at least 4 characters', 'bad_password');
+    if (!code) throw badRequest('Enter the code from the email', 'bad_code');
+
+    const check = resets.verify(email, code);
+    if (!check.ok) {
+      audit.log({ actor: email, action: 'password.reset.failed', target: email, detail: check.code, ip });
+      throw new (require('../http').HttpError)(check.code === 'too_many_tries' ? 429 : 400, check.message, check.code);
+    }
+
+    const user = users.byEmail(email);
+    if (!user) { resets.remove(email); throw badRequest('No account with that email', 'not_found'); }
+
+    users.update(email, { password: next });
+    resets.remove(email);
+    sessions.destroyForEmail(email);          // every old sign-in of this account stops working
+    resetLimiter.reset(email);
+    audit.log({ actor: email, role: user.role, action: 'password.reset', target: email, detail: 'by emailed code', ip });
+    sendJson(res, 200, { ok: true, message: 'Your password has been changed. Please sign in.' });
+  });
+
   /* ---- POST /api/auth/login ---- */
   router.post('/api/auth/login', async (req, res, ctx) => {
     const body = await readJson(req);

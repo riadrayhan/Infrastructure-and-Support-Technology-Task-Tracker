@@ -76,6 +76,14 @@ CREATE TABLE IF NOT EXISTS access_requests (
   at    TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS password_resets (
+  email       TEXT PRIMARY KEY REFERENCES users(email) ON DELETE CASCADE,
+  code_hash   TEXT NOT NULL,
+  expires_at  TEXT NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS audit (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   at      TEXT NOT NULL,

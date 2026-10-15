@@ -45,7 +45,7 @@ const View={
  nav(tabs,cur){$('#nav').innerHTML=tabs.map(x=>`<li class="nav-item"><button class="nav-link ${x[0]===cur?'active':''}" data-a="go" data-v="${x[0]}">${x[1]}</button></li>`).join('')},
  page(html){document.querySelectorAll('.tooltip').forEach(t=>t.remove());$('#v').innerHTML='<div class="fade-in">'+html+'</div>'},
  /* --- gate screens shown while nobody is signed in --- */
- gate(kind,msg,storeKind){
+ gate(kind,msg,storeKind,canEmail){
   const fld=(lbl,html)=>`<div class="mb-3"><label class="form-label small fw-semibold text-secondary mb-1">${lbl}</label>${html}</div>`;
   const shell=(ic,title,sub,body,c)=>`<div class="card tcard gate mx-auto my-4 my-md-5 a-up" style="--c:${c}"><div class="card-body p-4"><div class="d-flex align-items-center gap-3 mb-3"><span class="pi" style="--c:${c}">${ic}</span><div><h2 class="h4 fw-bold mb-0">${title}</h2><p class="text-secondary small mb-0">${sub}</p></div></div>${body}</div></div>`;
   let h='';
@@ -57,7 +57,18 @@ const View={
   else if(kind==='login')h=shell('🔐','Sign in','Use the email and password the super admin gave you',
    fld('Email','<input class="form-control" id="g_email" type="email" autocomplete="username">')+fld('Password','<input class="form-control" id="g_pw" type="password" autocomplete="current-password">')+
    '<div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="g_rem" checked><label class="form-check-label small" for="g_rem">Keep me signed in on this device</label></div><button class="btn btn-brand w-100" id="g_btn">Sign in</button>'+
+   (canEmail?'<p class="text-center mt-3 mb-0"><a href="#" id="g_forgot" class="small">Forgot your password?</a></p>':'')+
    `<div class="roles mt-4">${ROLES.map(r=>`<div class="d-flex gap-2 align-items-baseline small"><span class="badge rounded-pill b" style="--c:${ROLE_COL[r]}">${ROLE_LBL[r]}</span><span class="text-secondary">${ROLE_DESC[r]}</span></div>`).join('')}</div>`,'#4f46e5');
+  else if(kind==='forgot')h=shell('✉️','Forgot your password?','We will email you a six-digit code',
+   fld('Your email','<input class="form-control" id="g_email" type="email" autocomplete="username">')+
+   '<button class="btn btn-brand w-100" id="g_btn">Email me a code</button>'+
+   '<p class="text-center mt-3 mb-0"><a href="#" id="g_back" class="small">Back to sign in</a></p>','#0891b2');
+  else if(kind==='reset')h=shell('🔑','Enter the code','Check your email, then choose a new password',
+   fld('Email','<input class="form-control" id="g_email" type="email" autocomplete="username" value="'+esc(msg||'')+'">')+
+   fld('Six-digit code','<input class="form-control text-center" id="g_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" style="letter-spacing:.5em;font-size:1.3rem">')+
+   '<div class="row g-3">'+fld('New password','<input class="form-control" id="g_pw" type="password" autocomplete="new-password">').replace('mb-3','col-sm-6')+fld('Confirm password','<input class="form-control" id="g_pw2" type="password" autocomplete="new-password">').replace('mb-3','col-sm-6')+'</div>'+
+   '<button class="btn btn-brand w-100 mt-3" id="g_btn">Change my password</button>'+
+   '<p class="text-center mt-3 mb-0"><a href="#" id="g_again" class="small">Send a new code</a> · <a href="#" id="g_back" class="small">Back to sign in</a></p>','#0891b2');
   else h=shell('🔒','Access restricted','',`<p class="mb-0">${esc(msg)}</p>`,'#dc2626');
   $('#v').innerHTML=h},
  /* --- signed-in person in the hero + which toolbar buttons they get --- */

@@ -67,7 +67,7 @@ class FakeSpreadsheet {
 }
 
 /* ---------- load Code.gs with the Apps Script services replaced ---------- */
-function load({ logs = [] } = {}) {
+function load({ logs = [], outbox = [] } = {}) {
   const spreadsheet = new FakeSpreadsheet();
   const properties = new Map();
   let uuidCounter = 0;
@@ -103,6 +103,15 @@ function load({ logs = [] } = {}) {
     },
 
     Logger: { log: (...args) => logs.push(args.join(' ')) },
+
+    /* Gmail stands in as an outbox the tests can read. */
+    MailApp: {
+      sendEmail(options) {
+        if (typeof options === 'string') options = { to: options };
+        outbox.push(options);
+      },
+      getRemainingDailyQuota: () => 100 - outbox.length,
+    },
 
     Session: { getScriptTimeZone: () => 'UTC' },
 
@@ -148,7 +157,7 @@ function load({ logs = [] } = {}) {
     return JSON.parse(output.getContent());
   };
 
-  return { sandbox, call, spreadsheet, properties, logs };
+  return { sandbox, call, spreadsheet, properties, logs, outbox };
 }
 
 module.exports = { load };

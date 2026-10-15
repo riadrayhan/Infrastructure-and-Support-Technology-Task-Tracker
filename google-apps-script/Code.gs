@@ -42,6 +42,7 @@ var SHEETS = {
   sessions: { name: 'Sessions', headers: ['tokenHash', 'email', 'createdAt', 'expiresAt', 'userAgent'] },
   requests: { name: 'Requests', headers: ['id', 'email', 'name', 'at'] },
   archive:  { name: 'Archive',  headers: ['id', 'rows', 'at'] },
+  resets:   { name: 'Resets',   headers: ['email', 'codeHash', 'expiresAt', 'attempts', 'createdAt'] },
   audit:    { name: 'Audit',    headers: ['at', 'actor', 'role', 'action', 'target', 'detail'] }
 };
 
@@ -82,6 +83,10 @@ var SESSION_HOURS = 12;
 var HASH_ROUNDS = 500;          // raise for more protection, lower if sign-in feels slow
 var LOGIN_MAX_ATTEMPTS = 8;
 var LOGIN_WINDOW_MIN = 15;
+var RESET_CODE_MINUTES = 15;       // how long an emailed code stays usable
+var RESET_MAX_TRIES = 5;           // wrong codes allowed before the code is thrown away
+var RESET_MAX_REQUESTS = 5;        // codes one address may ask for inside the window below
+var RESET_REQUEST_WINDOW_MIN = 60;
 
 /* ===================================================================== */
 /* One-time setup – run this function from the editor                     */
@@ -209,6 +214,10 @@ function checkDeployment() {
 
   Logger.log('health:   %s', JSON.stringify(ACTIONS.health()));
   Logger.log('accounts: %s     items: %s', users.length, readTable_('items').length);
+  try {
+    Logger.log('email quota left today: %s (used for \'forgot password\' codes)',
+               MailApp.getRemainingDailyQuota());
+  } catch (err) { problems.push('Email is not available: ' + err.message); }
 
   if (problems.length) {
     Logger.log('PROBLEMS FOUND:');
@@ -272,7 +281,8 @@ function handle_(body, e) {
     if (!handler) return json_({ error: { code: 'not_found', message: 'Unknown action: ' + action } });
 
     /* Actions that work without being signed in. */
-    var open = { health: 1, setup: 1, login: 1, roles: 1, createRequest: 1, me: 1 };
+    var open = { health: 1, setup: 1, login: 1, roles: 1, createRequest: 1, me: 1,
+                 forgotPassword: 1, resetPassword: 1 };
     var ctx = { user: null, token: String(body.token || '') };
     if (ctx.token) ctx.user = userForToken_(ctx.token);
     if (!open[action] && !ctx.user) {
@@ -385,6 +395,78 @@ var ACTIONS = {
     var session = createSession_(row.email, e);
     audit_('password.change', row.email, row.role, row.email, '');
     return { ok: true, token: session.token, expiresAt: session.expiresAt };
+  },
+
+
+  /* ---------- forgotten password ---------- */
+
+  /**
+   * Step one: email a six-digit code to the address, if it has an account.
+   * The answer is the same either way, so the script never reveals who has an account.
+   */
+  forgotPassword: function (body) {
+    var email = normaliseEmail_(body.email);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      throw fail_(400, 'bad_email', 'Enter a valid email address');
+    }
+    throttleReset_(email);
+
+    var user = findUser_(email);
+    if (user) {
+      var code = resetCode_();
+      withLock_(function () { putReset_(email, code); });
+      var delivered = sendResetEmail_(user, code);
+      audit_('password.forgot', email, user.role, email, delivered ? 'code emailed' : 'email failed');
+      if (!delivered) {
+        throw fail_(500, 'mail_failed',
+          'The code could not be emailed. Ask the super admin to reset your password instead.');
+      }
+    } else {
+      audit_('password.forgot', email, '', email, 'no such account');
+    }
+    return {
+      ok: true,
+      message: 'If that address has an account, a six-digit code is on its way. It expires in '
+        + RESET_CODE_MINUTES + ' minutes.'
+    };
+  },
+
+  /** Step two: the code plus a new password. */
+  resetPassword: function (body) {
+    var email = normaliseEmail_(body.email);
+    var code = String(body.code || '').replace(/\s+/g, '');
+    var next = String(body.newPassword || '');
+    if (next.length < 4) throw fail_(400, 'bad_password', 'The new password must be at least 4 characters');
+    if (!code) throw fail_(400, 'bad_code', 'Enter the code from the email');
+
+    return withLock_(function () {
+      var row = findReset_(email);
+      if (!row) throw fail_(400, 'bad_code', 'No code is waiting for that address - ask for a new one');
+
+      if (new Date(row.expiresAt).getTime() <= new Date().getTime()) {
+        removeReset_(email);
+        throw fail_(400, 'expired_code', 'That code has expired - ask for a new one');
+      }
+      var attempts = Number(row.attempts || 0) + 1;
+      if (attempts > RESET_MAX_TRIES) {
+        removeReset_(email);
+        throw fail_(429, 'too_many_tries', 'Too many wrong codes - ask for a new one');
+      }
+      if (hashCode_(email, code) !== String(row.codeHash)) {
+        updateReset_(email, { attempts: attempts });
+        throw fail_(400, 'bad_code', 'That code is not correct - ' + (RESET_MAX_TRIES - attempts) + ' tries left');
+      }
+
+      var user = findUser_(email);
+      if (!user) { removeReset_(email); throw fail_(404, 'not_found', 'No account with that email'); }
+
+      updateUserRow_(email, { password: hashPassword_(next), updatedAt: nowIso_() });
+      removeReset_(email);
+      destroySessionsFor_(email);          // any old sign-in of this account stops working
+      clearThrottle_(email);
+      audit_('password.reset', email, user.role, email, 'by emailed code');
+      return { ok: true, message: 'Your password has been changed. Please sign in.' };
+    });
   },
 
   /* ---------- items ---------- */
@@ -851,6 +933,134 @@ function throttleLogin_(email) {
 
 function clearThrottle_(email) {
   PropertiesService.getScriptProperties().deleteProperty('throttle:' + email);
+}
+
+
+/* ---- forgotten-password codes ---- */
+
+/** A six-digit code drawn from the same random source as the session tokens. */
+function resetCode_() {
+  var bytes = randomBytes_(8);
+  var n = 0;
+  for (var i = 0; i < 4; i++) n = (n * 256 + ((bytes[i] + 256) % 256)) % 1000000;
+  return ('00000' + n).slice(-6);
+}
+
+/** Only the hash of a code is stored, so the sheet never shows a usable code. */
+function hashCode_(email, code) {
+  return sha256Hex_('reset:' + normaliseEmail_(email) + ':' + String(code));
+}
+
+function findReset_(email) {
+  var target = normaliseEmail_(email);
+  var rows = readTable_('resets');
+  for (var i = 0; i < rows.length; i++) {
+    if (normaliseEmail_(rows[i].email) === target) return rows[i];
+  }
+  return null;
+}
+
+function putReset_(email, code) {
+  var target = normaliseEmail_(email);
+  removeReset_(target);
+  appendRow_('resets', {
+    email: target,
+    codeHash: hashCode_(target, code),
+    expiresAt: new Date(new Date().getTime() + RESET_CODE_MINUTES * 60000).toISOString(),
+    attempts: 0,
+    createdAt: nowIso_()
+  });
+}
+
+function updateReset_(email, patch) {
+  var target = normaliseEmail_(email);
+  var rows = readTable_('resets');
+  for (var i = 0; i < rows.length; i++) {
+    if (normaliseEmail_(rows[i].email) !== target) continue;
+    Object.keys(patch).forEach(function (k) { rows[i][k] = patch[k]; });
+    updateRowAt_('resets', i, rows[i]);
+    return rows[i];
+  }
+  return null;
+}
+
+function removeReset_(email) {
+  var target = normaliseEmail_(email);
+  var rows = readTable_('resets');
+  for (var i = rows.length - 1; i >= 0; i--) {
+    if (normaliseEmail_(rows[i].email) === target) deleteRowAt_('resets', i);
+  }
+}
+
+/** Stop one address from being used to send somebody a flood of emails. */
+function throttleReset_(email) {
+  var props = PropertiesService.getScriptProperties();
+  var key = 'reset:' + email;
+  var now = new Date().getTime();
+  var raw = props.getProperty(key);
+  var entry = raw ? JSON.parse(raw) : { count: 0, reset: now + RESET_REQUEST_WINDOW_MIN * 60000 };
+  if (entry.reset <= now) entry = { count: 0, reset: now + RESET_REQUEST_WINDOW_MIN * 60000 };
+  entry.count += 1;
+  props.setProperty(key, JSON.stringify(entry));
+  if (entry.count > RESET_MAX_REQUESTS) {
+    throw fail_(429, 'rate_limited',
+      'Too many codes requested for that address. Try again in '
+      + Math.ceil((entry.reset - now) / 60000) + ' minute(s).');
+  }
+}
+
+/**
+ * Send the code with Gmail, through the account that owns this script.
+ * Free, and nothing to configure: a consumer account may send about 100 emails a day,
+ * a Workspace account about 1500. MailApp.getRemainingDailyQuota() shows what is left.
+ */
+function sendResetEmail_(user, code) {
+  var subject = 'Your Task and Project Tracker password code: ' + code;
+  var plain = [
+    'Hello ' + user.name + ',',
+    '',
+    'Your password reset code is: ' + code,
+    '',
+    'Type it on the tracker sign-in page within ' + RESET_CODE_MINUTES + ' minutes, together with',
+    'the new password you want to use.',
+    '',
+    'If you did not ask for this, ignore this email. Your current password still works.',
+    '',
+    'Infrastructure & Support, Technology, Microfinance'
+  ].join('\n');
+
+  var html =
+    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#0f172a;line-height:1.6">'
+    + '<p>Hello ' + escapeHtml_(user.name) + ',</p>'
+    + '<p>Your password reset code is:</p>'
+    + '<p style="font-size:30px;font-weight:bold;letter-spacing:8px;color:#ec008c;margin:18px 0">'
+    + code + '</p>'
+    + '<p>Type it on the tracker sign-in page within <b>' + RESET_CODE_MINUTES + ' minutes</b>, '
+    + 'together with the new password you want to use.</p>'
+    + '<p style="color:#64748b;font-size:13px">If you did not ask for this, ignore this email. '
+    + 'Your current password still works.</p>'
+    + '<hr style="border:0;border-top:1px solid #e5e9f2;margin:18px 0">'
+    + '<p style="color:#64748b;font-size:12px">Infrastructure &amp; Support · Technology · Microfinance</p>'
+    + '</div>';
+
+  try {
+    MailApp.sendEmail({
+      to: user.email,
+      subject: subject,
+      body: plain,
+      htmlBody: html,
+      name: 'Task and Project Tracker'
+    });
+    return true;
+  } catch (err) {
+    Logger.log('Could not send the reset email to %s: %s', user.email, err.message);
+    return false;
+  }
+}
+
+function escapeHtml_(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /* ===================================================================== */

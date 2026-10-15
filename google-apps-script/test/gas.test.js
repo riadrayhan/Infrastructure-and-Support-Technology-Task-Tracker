@@ -395,3 +395,131 @@ test('checkDeployment reports a healthy install and spots a broken one', () => {
   assert.equal(problems.length, 1);
   assert.match(problems[0], /not hashed/);
 });
+
+/* ---------------------------------------------------------------- forgotten password */
+function codeFromOutbox(outbox) {
+  const mail = outbox[outbox.length - 1];
+  assert.ok(mail, 'an email should have been sent');
+  const match = String(mail.subject + ' ' + mail.body).match(/\b(\d{6})\b/);
+  assert.ok(match, 'the email should carry a six-digit code');
+  return match[1];
+}
+
+test('forgot password: a code arrives by email and changes the password', () => {
+  const { call, outbox } = freshWorld();
+
+  const asked = call('forgotPassword', { email: 'sohel@example.com' });
+  assert.equal(asked.ok, true);
+  assert.match(asked.message, /six-digit code/);
+
+  const mail = outbox[outbox.length - 1];
+  assert.equal(mail.to, 'sohel@example.com');
+  assert.match(mail.subject, /password code/i);
+  assert.ok(mail.htmlBody.includes('Sohel'), 'the email greets the person by name');
+
+  const code = codeFromOutbox(outbox);
+  const done = call('resetPassword', { email: 'sohel@example.com', code, newPassword: 'freshpass' });
+  assert.equal(done.ok, true);
+
+  assert.equal(call('login', { email: 'sohel@example.com', password: 'superpw' }).error.code, 'unauthorized');
+  const session = call('login', { email: 'sohel@example.com', password: 'freshpass' });
+  assert.ok(session.token);
+  assert.equal(session.user.role, 'superuser', 'the role is untouched by a password reset');
+});
+
+test('forgot password: the code is not stored in a usable form', () => {
+  const { call, sandbox, outbox } = freshWorld();
+  call('forgotPassword', { email: 'vik@example.com' });
+  const code = codeFromOutbox(outbox);
+
+  const rows = sandbox.readTable_('resets');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].email, 'vik@example.com');
+  assert.ok(!String(rows[0].codeHash).includes(code), 'the sheet must not hold the code itself');
+  assert.equal(String(rows[0].codeHash).length, 64, 'it holds a SHA-256 hash instead');
+});
+
+test('forgot password: an unknown address gets the same answer and no email', () => {
+  const { call, outbox } = freshWorld();
+  const before = outbox.length;
+  const res = call('forgotPassword', { email: 'nobody@example.com' });
+  assert.equal(res.ok, true, 'the answer must not reveal who has an account');
+  assert.match(res.message, /If that address has an account/);
+  assert.equal(outbox.length, before, 'but nothing is actually sent');
+});
+
+test('forgot password: a wrong code is refused and runs out of tries', () => {
+  const { call, outbox } = freshWorld();
+  call('forgotPassword', { email: 'vik@example.com' });
+  const code = codeFromOutbox(outbox);
+  const wrong = code === '000000' ? '111111' : '000000';
+
+  for (let i = 1; i <= 5; i++) {
+    const res = call('resetPassword', { email: 'vik@example.com', code: wrong, newPassword: 'whatever1' });
+    assert.equal(res.error.code, 'bad_code', `attempt ${i}`);
+  }
+  /* the sixth attempt throws the code away, so even the right one no longer works */
+  assert.equal(call('resetPassword', { email: 'vik@example.com', code: wrong, newPassword: 'whatever1' }).error.code, 'too_many_tries');
+  assert.equal(call('resetPassword', { email: 'vik@example.com', code, newPassword: 'whatever1' }).error.code, 'bad_code');
+  assert.ok(call('login', { email: 'vik@example.com', password: 'viewerpw' }).token, 'the old password still works');
+});
+
+test('forgot password: an expired code is refused', () => {
+  const { call, sandbox, outbox } = freshWorld();
+  call('forgotPassword', { email: 'vik@example.com' });
+  const code = codeFromOutbox(outbox);
+
+  const rows = sandbox.readTable_('resets');
+  rows[0].expiresAt = new Date(Date.now() - 60000).toISOString();
+  sandbox.writeTable_('resets', rows);
+
+  const res = call('resetPassword', { email: 'vik@example.com', code, newPassword: 'whatever1' });
+  assert.equal(res.error.code, 'expired_code');
+  assert.equal(sandbox.readTable_('resets').length, 0, 'the spent code is cleared away');
+});
+
+test('forgot password: a code cannot be used twice', () => {
+  const { call, outbox } = freshWorld();
+  call('forgotPassword', { email: 'vik@example.com' });
+  const code = codeFromOutbox(outbox);
+  assert.equal(call('resetPassword', { email: 'vik@example.com', code, newPassword: 'firstpass' }).ok, true);
+  assert.equal(call('resetPassword', { email: 'vik@example.com', code, newPassword: 'secondpass' }).error.code, 'bad_code');
+  assert.ok(call('login', { email: 'vik@example.com', password: 'firstpass' }).token);
+});
+
+test('forgot password: a reset signs that person out everywhere', () => {
+  const { call, tokens, outbox } = freshWorld();
+  assert.equal(call('me', { token: tokens.viewer }).user.email, 'vik@example.com');
+
+  call('forgotPassword', { email: 'vik@example.com' });
+  call('resetPassword', { email: 'vik@example.com', code: codeFromOutbox(outbox), newPassword: 'brandnew1' });
+
+  assert.equal(call('me', { token: tokens.viewer }).user, null, 'the old session is dead');
+});
+
+test('forgot password: one address cannot be used to send a flood of email', () => {
+  const { call, outbox } = freshWorld();
+  let blocked = false;
+  for (let i = 0; i < 10; i++) {
+    const res = call('forgotPassword', { email: 'vik@example.com' });
+    if (res.error && res.error.code === 'rate_limited') { blocked = true; break; }
+  }
+  assert.ok(blocked, 'the script should stop sending after several requests');
+  assert.ok(outbox.length <= 5, `at most five emails, got ${outbox.length}`);
+});
+
+test('forgot password: input is checked', () => {
+  const { call, outbox } = freshWorld();
+  assert.equal(call('forgotPassword', { email: 'not-an-email' }).error.code, 'bad_email');
+  call('forgotPassword', { email: 'vik@example.com' });
+  const code = codeFromOutbox(outbox);
+  assert.equal(call('resetPassword', { email: 'vik@example.com', code, newPassword: 'ab' }).error.code, 'bad_password');
+  assert.equal(call('resetPassword', { email: 'vik@example.com', code: '', newPassword: 'goodpass' }).error.code, 'bad_code');
+});
+
+test('forgot password: works without being signed in', () => {
+  const { call } = freshWorld();
+  /* no token is passed anywhere in this test, which is the whole point */
+  const res = call('forgotPassword', { email: 'amina@example.com' });
+  assert.equal(res.ok, true);
+});

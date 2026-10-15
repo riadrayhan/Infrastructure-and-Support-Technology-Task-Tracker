@@ -129,6 +129,27 @@ Two things worth knowing:
 * Changing someone's role or password ends their other sessions at once, so a demotion applies
   immediately instead of at their next sign-in.
 
+## Forgotten passwords
+
+The sign-in page has a **Forgot your password?** link. The person types their email, the script
+emails them a six-digit code, and they type that code with the new password they want.
+
+Sending is free and needs no setup: the mail goes through Gmail using the Google account that owns
+the script. A consumer account may send about 100 emails a day, a Workspace account about 1500.
+`checkDeployment` prints how much of today's quota is left.
+
+Safeguards, all enforced in the script:
+
+* The code is random, lasts 15 minutes and works once.
+* Only a SHA-256 hash of it is written to the `Resets` tab, so the sheet never shows a usable code.
+* Five wrong tries throw the code away.
+* One address may request five codes an hour, so nobody can be mail-bombed.
+* The answer is the same whether or not the address has an account, so the page cannot be used to
+  discover who is registered.
+* A successful reset signs that person out everywhere.
+
+Tune `RESET_CODE_MINUTES`, `RESET_MAX_TRIES` and `RESET_MAX_REQUESTS` near the top of `Code.gs`.
+
 ## The tabs
 
 | Tab | Holds | Safe to edit by hand? |
@@ -138,6 +159,7 @@ Two things worth knowing:
 | `Sessions` | who is currently signed in | Clearing it signs everyone out |
 | `Requests` | people waiting for an account | Yes |
 | `Archive` | older tasks kept for reference | Leave to the app |
+| `Resets` | hashed password-reset codes, short-lived | Leave to the app |
 | `Audit` | who changed what, and when | Append-only; do not edit |
 
 Because `Items` is an ordinary sheet you can build pivot tables, charts and Looker Studio reports

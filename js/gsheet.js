@@ -140,6 +140,16 @@
       this.signedOut();
     }
 
+    /* ---------- forgotten password ---------- */
+    /** Ask the script to email a six-digit code. The answer is the same whether or not the
+        address has an account, so nobody can use this to discover who is registered. */
+    forgotPassword(email) { return this.call('forgotPassword', { email: email }, 30000); }
+
+    /** Finish the reset with the emailed code and the new password. */
+    resetPassword(email, code, newPassword) {
+      return this.call('resetPassword', { email: email, code: code, newPassword: newPassword }, 30000);
+    }
+
     /* ---------- the store interface model.js expects ---------- */
     watch(collection, cb, err) {
       (this.subs[collection] = this.subs[collection] || []).push(cb);

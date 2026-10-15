@@ -15,7 +15,7 @@ const Presenter={
 
  /* --- navigation --- */
  go(t){const changed=t!==this.tab;this.tab=t;if(changed)window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
-  if(!Model.session){View.nav([],'');View.gate(this.gate.kind,this.gate.msg,Model.store&&Model.store.kind);this.bindGate();return}
+  if(!Model.session){View.nav([],'');View.gate(this.gate.kind,this.gate.msg,Model.store&&Model.store.kind,this.canEmailCode());this.bindGate();return}
   View.nav(this.TABS,t);
   const bt=this.PT[t];
   View.page(bt?View.board(bt,this.F):{overview:()=>View.overview(),tasks:()=>View.tasks(this.TF),team:()=>View.team(this.SEL)}[t]());
@@ -104,7 +104,10 @@ const Presenter={
   Model.start(e=>this.syncStatus(e));this.syncStatus();View.who(Model.session,this.usesPasswords());this.tab='overview';this.draw()},
  async signOut(){if(this.isApi()){try{await Model.store.logout()}catch(e){}}
   Model.session=null;try{localStorage.removeItem('tracker.session')}catch(e){}View.who(null,this.usesPasswords());this.setGate('login')},
- /* wire the gate screens (setup / login) after View.gate() rendered them */
+ /* Only a backend can email a code; the browser-only build cannot. */
+ canEmailCode(){return!!(Model.store&&Model.store.kind==='api'&&typeof Model.store.forgotPassword==='function')},
+
+ /* wire the gate screens (setup / login / forgot / reset) after View.gate() rendered them */
  bindGate(){const k=this.gate.kind,b=$('#g_btn');if(!b)return;
   const v=i=>($(i)||{value:''}).value.trim();
   if(k==='setup')b.onclick=async()=>{const name=v('#g_name'),email=Model.uid(v('#g_email')),pw=v('#g_pw'),pw2=v('#g_pw2');
@@ -123,7 +126,23 @@ const Presenter={
    const u=Model.findUser(email);
    if(!u||u.pw!==await Model.hash(pw)){View.toast('Email or password is not correct');return}
    this.signIn(u,$('#g_rem')?$('#g_rem').checked:true)};
-  const f=$('#g_pw')||$('#g_email');if(f)f.onkeydown=e=>{if(e.key==='Enter')b.click()}},
+  if(k==='forgot')b.onclick=async()=>{const email=Model.uid(v('#g_email'));
+   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){View.toast('Enter a valid email address');return}
+   b.disabled=true;
+   try{const r=await Model.store.forgotPassword(email);View.toast((r&&r.message)||'Check your email for the code');this.setGate('reset',email)}
+   catch(e){b.disabled=false;View.toast((e&&e.message)||'Could not send the code')}};
+  if(k==='reset')b.onclick=async()=>{const email=Model.uid(v('#g_email')),code=v('#g_code'),pw=v('#g_pw'),pw2=v('#g_pw2');
+   if(!code){View.toast('Enter the six-digit code from the email');return}
+   if(pw.length<4){View.toast('The new password must be at least 4 characters');return}
+   if(pw!==pw2){View.toast('The two passwords do not match');return}
+   b.disabled=true;
+   try{await Model.store.resetPassword(email,code,pw);View.toast('Password changed – please sign in');this.setGate('login')}
+   catch(e){b.disabled=false;View.toast((e&&e.message)||'Could not change the password')}};
+  const link=(id,fn)=>{const a=$(id);if(a)a.onclick=e=>{e.preventDefault();fn()}};
+  link('#g_forgot',()=>this.setGate('forgot'));
+  link('#g_back',()=>this.setGate('login'));
+  link('#g_again',()=>this.setGate('forgot'));
+  const f=$('#g_code')||$('#g_pw')||$('#g_email');if(f)f.onkeydown=e=>{if(e.key==='Enter')b.click()}},
 
  /* local mode: first run creates the super admin, afterwards sign in with email + password */
  localGate(){

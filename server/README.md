@@ -62,6 +62,27 @@ Copy `.env.example` to `.env`. Everything is optional.
 | `LOGIN_MAX_ATTEMPTS` | `8` per 15 min | failed sign-ins before throttling |
 | `RATE_MAX` | `600` per minute | general request ceiling per address |
 
+## Forgotten passwords
+
+The sign-in page offers **Forgot your password?**. The server emails a six-digit code, which the
+person types with their new password.
+
+Choose how mail is sent with `MAIL_TRANSPORT`:
+
+| Value | What happens | When to use it |
+|---|---|---|
+| `console` (default) | the code is printed in the server log | a local or intranet install where an administrator can read the log; needs no account |
+| `smtp` | the code is emailed | normal use |
+| `memory` | kept in an array | the tests |
+
+For `smtp`, set `MAIL_HOST`, `MAIL_PORT` (587 or 465), `MAIL_USER`, `MAIL_PASS` and `MAIL_FROM`.
+Any provider works, including a free Gmail account with an App Password, Brevo, Mailjet or Zoho.
+The SMTP client is built on Node's own `net`/`tls`, so there is still nothing to install.
+
+The same safeguards as the Google Sheets build apply: the code is random, lasts 15 minutes, works
+once, is stored only as a hash, dies after five wrong tries, is rate limited per address, gives the
+same answer for unknown addresses, and signs that person out everywhere on success.
+
 ## Security
 
 * Passwords are stored with **scrypt** and a random salt per account. They are never returned by
@@ -90,6 +111,8 @@ Sign in with the cookie (the browser does this) or with `Authorization: Bearer <
 | `POST` | `/api/auth/logout` | signed in | end this session |
 | `GET` | `/api/auth/me` | anyone | who am I, and what may I do |
 | `POST` | `/api/auth/password` | signed in | change your own password |
+| `POST` | `/api/auth/forgot` | anyone | email a six-digit reset code |
+| `POST` | `/api/auth/reset` | anyone | finish the reset with that code |
 
 ### Items
 

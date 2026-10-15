@@ -111,6 +111,16 @@
       this.stopPolling();
     }
 
+    /* ---------- forgotten password ---------- */
+    /** Ask the server to email a six-digit code. The answer is deliberately the same whether
+        or not the address has an account. */
+    forgotPassword(email) { return this.request('POST', '/api/auth/forgot', { email }); }
+
+    /** Finish the reset with the emailed code and the new password. */
+    resetPassword(email, code, newPassword) {
+      return this.request('POST', '/api/auth/reset', { email, code, newPassword });
+    }
+
     /* ---------- the store interface used by model.js ---------- */
     watch(collection, cb, err) {
       (this.subs[collection] = this.subs[collection] || []).push(cb);
