@@ -195,3 +195,6 @@ tr.c td{transition:background .15s}
 .chat-day span{font-size:.68rem;color:var(--bs-secondary-color);background:color-mix(in srgb,var(--bs-body-color) 7%,transparent);padding:2px 10px;border-radius:99px}
 .chat-typing{height:1.1em;margin-bottom:4px}
 @media(max-width:991px){.chat-pane{height:60vh}.chat-people{max-height:34vh}}
+
+.chat-preview-note{background:color-mix(in srgb,#0891b2 10%,var(--surface));border:1px solid color-mix(in srgb,#0891b2 35%,transparent);
+  color:var(--bs-body-color);border-radius:14px;font-size:.86rem;padding:10px 14px}

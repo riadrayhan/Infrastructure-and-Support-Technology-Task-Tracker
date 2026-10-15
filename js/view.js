@@ -180,11 +180,17 @@ const View={
    return this.ph('👤',esc(SEL),'Projects, recurring items and tasks – Ongoing, On Hold and Done','#7c3aed',xbtns()+'<button class="btn btn-outline-secondary" data-a="person" data-v="">← All members</button>')+`<div class="row g-3"><div class="col-12 col-lg-5">${card('#7c3aed',this.person(SEL,'fs-5')+this.mt(r))}</div><div class="col-12 col-lg-7">${card('#7c3aed',ST.map(grp).join('')||empty('No items yet'))}</div></div>`}
   return this.ph('👥','Team','Workload of every member – click a card for the full list','#7c3aed',xbtns())+`<div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">${Model.people().map((n,i)=>`<div class="col a-up" style="--i:${i}">${card(avc(n),this.person(n)+this.mt(Model.counts(n)),'pc" data-a="person" data-v="'+esc(n))}</div>`).join('')||'<div class="col">'+empty('No team members yet – create a project or task to get started.')+'</div>'}</div><p class="text-secondary small mt-3">Counts include items where the person is Focal-1 or Focal-2. Click a member for full list.</p>`},
 
- /* --- chat: colleagues on the left, the conversation on the right --- */
- chat(chatClient){
-  const me=chatClient.me||{};
+ /* --- chat: colleagues on the left, the conversation on the right.
+        `live` is null until the chat server is running; the design is shown either way. --- */
+ chat(live){
+  const connected=Boolean(live&&live.connected);
+  const ready=Boolean(live&&live.available);
   return this.ph('💬','Chat','Message a colleague directly · messages are kept with the rest of the data','#0891b2',
-   `<span class="badge rounded-pill ${chatClient.connected?'text-bg-success':'text-bg-secondary'}" id="c_state">${chatClient.connected?'● Live':'○ Offline'}</span>`)
+   `<span class="badge rounded-pill ${connected?'text-bg-success':'text-bg-secondary'}" id="c_state">${connected?'● Live':'○ Offline'}</span>`)
+  +(ready?'':`<div class="alert chat-preview-note d-flex flex-wrap align-items-center gap-2" role="status">
+     <span class="fs-5">💬</span>
+     <span><b>Preview.</b> This is how chat looks. Messages start moving between people once the
+     Node.js server is running, which is what holds the live connection open.</span></div>`)
   +`<div class="row g-3 chat">
     <div class="col-12 col-lg-4">
      <input class="form-control mb-2" id="c_search" placeholder="Search colleagues…" autocomplete="off">
@@ -199,7 +205,7 @@ const View={
       <div class="card-footer">
        <div class="chat-typing text-secondary small" id="c_typing">&nbsp;</div>
        <div class="input-group">
-        <input class="form-control" id="c_msg" placeholder="Write a message…" autocomplete="off" disabled maxlength="4000">
+        <input class="form-control" id="c_msg" placeholder="${ready?'Write a message…':'Live chat starts when the server is running'}" autocomplete="off" disabled maxlength="4000">
         <button class="btn btn-brand" id="c_send" disabled>Send</button>
        </div>
       </div>
@@ -241,6 +247,23 @@ const View={
      <div class="bubble">${esc(m.body).replace(/\n/g,'<br>')}
       <span class="meta">${esc(shortTime(m.at))}${mine?` <span class="tick ${m.readAt?'read':''}">${m.readAt?'✓✓':'✓'}</span>`:''}</span>
      </div></div>`}).join('');
+  log.scrollTop=log.scrollHeight},
+
+ /** A short illustrative exchange, so the layout can be seen before anyone has written anything. */
+ chatPreviewMessages(person,me){
+  const log=$('#c_log');if(!log)return;
+  if(!person){log.innerHTML=`<div class="chat-empty text-secondary">Choose a colleague on the left to see the conversation view.</div>`;return}
+  const clock=mins=>{const d=new Date(Date.now()-mins*60000);return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})};
+  const sample=[
+   {mine:false,text:`Morning. Any update on the DR site?`,at:clock(42)},
+   {mine:true, text:`Hardware arrives Thursday. I will move it to 60% once it is racked.`,at:clock(38),read:true},
+   {mine:false,text:`Good. I will tell Operations.`,at:clock(35)},
+  ];
+  log.innerHTML=`<div class="chat-day"><span>Example conversation</span></div>`
+   +sample.map(m=>`<div class="chat-row ${m.mine?'mine':''}"><div class="bubble">${esc(m.text)}
+     <span class="meta">${m.at}${m.mine?` <span class="tick ${m.read?'read':''}">${m.read?'✓✓':'✓'}</span>`:''}</span>
+    </div></div>`).join('')
+   +`<div class="chat-day"><span>Nothing real yet – this is a preview</span></div>`;
   log.scrollTop=log.scrollHeight},
 
  chatHeader(person,online,typing){

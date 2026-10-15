@@ -5,8 +5,17 @@
 const Presenter={
  TABS:[['overview','Overview'],['projects','Projects'],['recurring','Recurring'],['tasks','Tasks'],['team','Team']],
  chat:null,CF:'',
- /** The tab strip, with Chat added when a backend carries it. */
- tabs(){return this.chat&&this.chat.available?this.TABS.concat([['chat','Chat']]):this.TABS},
+ CP:'',                           /* the colleague selected while chat is only a preview */
+ /** Chat is always on the tab strip; without a server it shows the design as a preview. */
+ tabs(){return this.TABS.concat([['chat','Chat']])},
+ /** Colleagues to list: real accounts when we have them, otherwise the people named on items. */
+ chatPeople(){
+  const me=Model.session||{};
+  const accounts=(Model.users||[]).filter(u=>u.email&&u.email!==me.email)
+   .map(u=>({email:u.email,name:u.name||u.email,role:u.role||'viewer'}));
+  if(accounts.length)return accounts;
+  return Model.people().filter(n=>n&&n!==me.name)
+   .map(n=>({email:n.toLowerCase().replace(/[^a-z0-9]+/g,'.')+'@example.com',name:n,role:'viewer'}))},
  PT:{projects:'Project',recurring:'Drive'},
  THEMES:[{id:'light',label:'Light',icon:'☀️',base:'light',swatch:'linear-gradient(135deg,#f3f5fb 45%,#6d28d9 45%,#ec008c)'},
          {id:'dark',label:'Dark',icon:'🌙',base:'dark',swatch:'linear-gradient(135deg,#0a0f1e 45%,#6d28d9 45%,#ec008c)'},
@@ -22,7 +31,8 @@ const Presenter={
   View.nav(this.tabs(),t,{chat:this.chat?this.chat.totalUnread():0});
   const bt=this.PT[t];
   View.page(bt?View.board(bt,this.F):{overview:()=>View.overview(),tasks:()=>View.tasks(this.TF),team:()=>View.team(this.SEL),chat:()=>View.chat(this.chat)}[t]());
-  if(bt)this.bindBoard(bt);if(t==='tasks')this.bindTasks();if(t==='overview')View.countUp();if(t==='chat')this.bindChat()},
+  if(bt)this.bindBoard(bt);if(t==='tasks')this.bindTasks();if(t==='overview')View.countUp();
+  if(t==='chat'){if(this.chat&&this.chat.available)this.bindChat();else this.bindChatPreview()}},
  draw(){this.go(this.tab)},
 
  /* the filtered lists – shared by the page rendering and the export */
@@ -202,7 +212,18 @@ const Presenter={
    box.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();post()}};
    box.oninput=()=>{const now=Date.now();if(now-last>1500){last=now;chat.typing(chat.openWith,true)}}}},
 
- async openChatWith(email){const chat=this.chat;if(!chat)return;
+ bindChatPreview(){const people=this.chatPeople(),me=Model.session||{};
+  const contacts=people.map(p=>({email:p.email,name:p.name,role:p.role,unread:0,online:false,lastAt:'',lastBody:'',lastFromMe:false}));
+  if(this.CP&&!contacts.some(c=>c.email===this.CP))this.CP='';
+  View.chatContacts(contacts,this.CP,this.CF);
+  const chosen=contacts.find(c=>c.email===this.CP)||null;
+  View.chatHeader(chosen,false,false);
+  View.chatPreviewMessages(chosen,me);
+  const search=$('#c_search');if(search){search.value=this.CF;
+   search.oninput=()=>{this.CF=search.value;View.chatContacts(contacts,this.CP,this.CF)}}},
+
+ async openChatWith(email){const chat=this.chat;
+  if(!chat||!chat.available){this.CP=email;this.bindChatPreview();return}
   try{await chat.openConversation(email)}catch(e){View.toast((e&&e.message)||'Could not open that conversation')}
   if(this.tab!=='chat')this.go('chat');else this.bindChat()},
 
