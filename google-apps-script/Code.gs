@@ -60,6 +60,9 @@ var ROLE_DESCRIPTION = {
 };
 
 /* Which item types each role may create, edit and delete. This is the whole permission model. */
+/* A newline, written without an escape so the character cannot be mangled in transit. */
+var NL = String.fromCharCode(10);
+
 var WRITABLE_TYPES = {
   superadmin: ['Project', 'Drive', 'Task'],
   admin:      ['Project', 'Drive', 'Task'],
@@ -102,16 +105,29 @@ function setupTracker() {
   var email = (props.getProperty('SEED_EMAIL') || 'admin@tracker.com').toLowerCase();
   var name = props.getProperty('SEED_NAME') || 'Super admin';
   var password = props.getProperty('SEED_PASSWORD') || 'Admin@1234';
+  var adminEmail = (props.getProperty('SEED_ADMIN_EMAIL') || 'testadmin@gmail.com').toLowerCase();
+  var adminName = props.getProperty('SEED_ADMIN_NAME') || 'test admin';
+  var adminPassword = props.getProperty('SEED_ADMIN_PASSWORD') || 'testpass';
 
   var existing = readTable_('users');
   if (existing.length) {
     Logger.log('Users sheet already has %s account(s) – nothing seeded.', existing.length);
   } else {
+    /* The sign-in page offers two accounts whether or not a server is connected. If only the
+       super admin existed here, signing in as the Admin would work in the browser-only mode and
+       be refused by the spreadsheet - and anything created in between would sit on one device
+       instead of reaching this sheet. Both accounts start out in both places. */
     appendRow_('users', {
       email: email, name: name, role: 'superadmin',
       password: hashPassword_(password), externalId: '',
       createdAt: nowIso_(), createdBy: 'setup', updatedAt: '', lastLogin: ''
     });
+    appendRow_('users', {
+      email: adminEmail, name: adminName, role: 'admin',
+      password: hashPassword_(adminPassword), externalId: '',
+      createdAt: nowIso_(), createdBy: 'setup', updatedAt: '', lastLogin: ''
+    });
+    Logger.log('Admin created.' + NL + '  email:    %s' + NL + '  password: %s', adminEmail, adminPassword);
     Logger.log('Super admin created.\n  email:    %s\n  password: %s\nChange it after the first sign-in.', email, password);
   }
 

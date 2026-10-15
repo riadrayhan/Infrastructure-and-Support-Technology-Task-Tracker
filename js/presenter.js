@@ -114,6 +114,16 @@ const Presenter={
  canEmailCode(){return!!(Model.store&&Model.store.kind==='api'&&typeof Model.store.forgotPassword==='function')},
 
  /* wire the gate screens (setup / login / forgot / reset) after View.gate() rendered them */
+ /* The sign-in page offers the same accounts whether or not a server is connected, so an
+    account that lives only in config/users.js is refused once the Google Sheet answers - and
+    saying only "wrong password" sends people back to the browser-only mode, where their work
+    stays on one device. Name the real problem instead. */
+ signInHelp(email,e){
+  const seeded=(window.SEED_USERS||[]).some(u=>Model.uid(u.email)===email);
+  const refused=!e||e.code==='unauthorized'||/not correct/i.test(e.message||'');
+  if(seeded&&refused)return'That account is not in the Google Sheet yet - it only exists on this device. Ask the super admin to add it under Team.';
+  return(e&&e.message)||'Email or password is not correct'},
+
  bindGate(){const k=this.gate.kind,b=$('#g_btn');if(!b)return;
   const v=i=>($(i)||{value:''}).value.trim();
   if(k==='setup')b.onclick=async()=>{const name=v('#g_name'),email=Model.uid(v('#g_email')),pw=v('#g_pw'),pw2=v('#g_pw2');
@@ -127,7 +137,7 @@ const Presenter={
   if(k==='login')b.onclick=async()=>{const email=Model.uid(v('#g_email')),pw=v('#g_pw');
    if(this.isApi()){b.disabled=true;
     try{const s=await Model.store.login(email,pw);this.signIn(s.user,false);await Model.store.refreshAll()}
-    catch(e){b.disabled=false;View.toast((e&&e.message)||'Email or password is not correct')}
+    catch(e){b.disabled=false;View.toast(this.signInHelp(email,e))}
     return}
    const u=Model.findUser(email);
    if(!u||u.pw!==await Model.hash(pw)){View.toast('Email or password is not correct');return}

@@ -169,7 +169,8 @@ test('viewer: reads everything and changes nothing', () => {
 test('super admin: manages users without ever exposing a password', () => {
   const { call, tokens } = freshWorld();
   const list = call('listUsers', { token: tokens.superadmin });
-  assert.equal(list.users.length, 4);
+  /* two seeded by setup, three made by the test */
+  assert.equal(list.users.length, 5);
   for (const u of list.users) assert.ok(!('password' in u), `${u.email} leaked its password`);
 });
 
@@ -596,4 +597,26 @@ test('a day typed into the sheet by hand is read as that day', () => {
 
   const stored = call('listItems', { token: tokens.superadmin }).items.find(i => i.id === made.id);
   assert.equal(stored.e, '2026-11-05');
+});
+
+test('setup seeds both of the accounts the sign-in page offers', () => {
+  /* The page lists a super admin and an Admin whether or not a server is connected. An Admin
+     that existed only in the browser could sign in offline, create a project, and leave it on
+     that one device while the spreadsheet refused the same password. */
+  const { call, sandbox } = load();
+  sandbox.setupTracker();
+
+  const admin = call('login', { email: 'testadmin@gmail.com', password: 'testpass' });
+  assert.equal(admin.user.role, 'admin', JSON.stringify(admin.error || {}));
+
+  const made = call('saveItem', {
+    token: admin.token,
+    item: { type: 'Project', title: 'Core banking upgrade', f1: 'test admin', s: 'Ongoing', pri: 'High' },
+  });
+  assert.ok(!made.error, 'an Admin must be able to create a project');
+  assert.equal(made.createdBy, 'testadmin@gmail.com');
+
+  const stored = call('listItems', { token: admin.token }).items;
+  assert.equal(stored.length, 1, 'and it must be in the sheet, not only in the reply');
+  assert.equal(stored[0].title, 'Core banking upgrade');
 });
