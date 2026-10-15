@@ -1171,10 +1171,21 @@ function audit_(action, actor, role, target, detail) {
 function spreadsheet_() {
   var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
   if (id) return SpreadsheetApp.openById(id);
-  var active = SpreadsheetApp.getActive();
+
+  var active = null;
+  try {
+    active = SpreadsheetApp.getActive();
+  } catch (err) {
+    /* Almost always one of two things, and the raw message says neither. */
+    throw fail_(500, 'no_permission',
+      'This script may not open the spreadsheet yet: ' + err.message +
+      '  Run setupTracker from the editor and accept the permission prompt. If no prompt appears,' +
+      ' remove the project under myaccount.google.com → Data & privacy → Third-party access, then run it again.');
+  }
   if (active) return active;
   throw fail_(500, 'no_sheet',
-    'No spreadsheet found. Bind this script to a sheet, or set the SHEET_ID script property.');
+    'No spreadsheet is attached to this script. Either open the script from inside the sheet' +
+    ' (Extensions → Apps Script), or set a SHEET_ID script property to the id in the sheet URL.');
 }
 
 function sheet_(key) {

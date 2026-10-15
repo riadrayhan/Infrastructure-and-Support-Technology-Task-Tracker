@@ -48,6 +48,32 @@ function tracker_() {
   return _tracker;
 }
 
+/**
+ * Never called. It exists so that Apps Script asks for the right permissions.
+ *
+ * Apps Script decides which permissions to request by READING the code in the editor. The real
+ * tracker arrives later, through eval, so the scanner cannot see that it will touch the
+ * spreadsheet or send mail, and it only asks for permission to fetch a URL. The first call to
+ * SpreadsheetApp then fails with "Specified permissions are not sufficient".
+ *
+ * Mentioning each service here, in code that never runs, is what makes the consent screen ask
+ * for all of them. Do not delete this function.
+ */
+function _permissionsNeeded_() {
+  if (new Date().getTime() > 0) return;        // never true at run time
+  SpreadsheetApp.getActive().getSheetByName('x');
+  SpreadsheetApp.openById('x');
+  MailApp.sendEmail({ to: 'x@example.com', subject: 'x', body: 'x' });
+  MailApp.getRemainingDailyQuota();
+  UrlFetchApp.fetch('https://example.com');
+  CacheService.getScriptCache().get('x');
+  PropertiesService.getScriptProperties().getProperty('x');
+  LockService.getScriptLock().waitLock(1);
+  Utilities.getUuid();
+  Session.getScriptTimeZone();
+  Logger.log('x');
+}
+
 /* ---- what the web app and the editor call ---- */
 function doGet(e) { return tracker_().doGet(e); }
 function doPost(e) { return tracker_().doPost(e); }

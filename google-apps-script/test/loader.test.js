@@ -47,9 +47,41 @@ function loadViaLoader({ source = null, status = 200 } = {}) {
 test('the loader is short enough that nobody can paste the wrong thing', () => {
   const text = fs.readFileSync(LOADER, 'utf8');
   const lines = text.split('\n').length;
-  assert.ok(lines < 80, `the loader should stay small, it is ${lines} lines`);
+  assert.ok(lines < 140, `the loader should stay small, it is ${lines} lines`);
   assert.ok(!/\bwindow\b/.test(text), 'and must never mention window');
   assert.match(text, /raw\.githubusercontent\.com/);
+});
+
+test('the loader names every service, so the right permissions are requested', () => {
+  /* Apps Script decides which permissions to ask for by reading the code in the editor. The
+     real tracker arrives through eval, where the scanner cannot see it, so the loader has to
+     mention each service itself or the first spreadsheet call is refused. */
+  const text = fs.readFileSync(LOADER, 'utf8');
+  const code = fs.readFileSync(CODE, 'utf8');
+
+  const SERVICES = ['SpreadsheetApp', 'MailApp', 'UrlFetchApp', 'CacheService',
+                    'PropertiesService', 'LockService', 'Utilities', 'Session',
+                    'DriveApp', 'GmailApp', 'CalendarApp'];
+
+  const mentions = (haystack, service) => haystack.indexOf(service + '.') !== -1;
+
+  for (const service of ['SpreadsheetApp', 'MailApp', 'UrlFetchApp', 'CacheService']) {
+    assert.ok(mentions(text, service), `the loader must mention ${service}`);
+  }
+  /* Anything Code.gs uses must be listed too, or a service added later hits the same wall. */
+  for (const service of SERVICES) {
+    if (mentions(code, service)) {
+      assert.ok(mentions(text, service), `Code.gs uses ${service}; the loader must mention it too`);
+    }
+  }
+});
+
+test('the permission hints never actually run', () => {
+  const { sandbox } = loadViaLoader();
+  let touched = false;
+  sandbox.MailApp = { sendEmail() { touched = true; }, getRemainingDailyQuota() { touched = true; return 0; } };
+  sandbox._permissionsNeeded_();
+  assert.equal(touched, false, 'it must return before calling anything');
 });
 
 test('the whole tracker works through the loader', () => {
