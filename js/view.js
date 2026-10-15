@@ -20,7 +20,8 @@ const View={
  toast(m){const t=document.createElement('div');t.className='toast align-items-center text-bg-dark border-0';t.setAttribute('role','status');
   t.innerHTML=`<div class="d-flex"><div class="toast-body"></div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
   t.querySelector('.toast-body').textContent=m;$('#toasts').appendChild(t);t.addEventListener('hidden.bs.toast',()=>t.remove());new bootstrap.Toast(t,{delay:2200}).show()},
- status(t,ok){$('#snap').textContent=t;$('#lv').classList.toggle('off',!ok)},
+ /* An empty message hides the indicator entirely, dot and all. */
+ status(t,ok){$('#snap').textContent=t||'';$('#lv').classList.toggle('off',!ok);$('#lv').classList.toggle('d-none',!t)},
  /* one-time behaviours: reveal-on-scroll for .a-up, click ripple on buttons, delegated Bootstrap tooltips */
  init(){
   const root=document.documentElement;

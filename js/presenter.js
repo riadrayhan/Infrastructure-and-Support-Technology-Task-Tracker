@@ -185,7 +185,7 @@ const Presenter={
  syncStatus(err){
   if(err){View.status('Sync error: '+(err.code||''),false);return}
   const n=Model.items.length;
-  if(this.isLocal()){View.status('Saved on this device · '+n+' items',false);return}
+  if(this.isLocal()){View.status('',false);return}
   if(this.isApi()){View.status('Live · '+n+' items synced',true);return}
   View.status((Model.platWrite?'Live · ':'Live · read-only · ')+n+' items synced',true)},
 
@@ -239,7 +239,7 @@ const Presenter={
    try{Model.platWrite=u&&u.can?(await u.can('data.write'))!==false:true}catch(e){}
    Model.watchUsers(()=>this.cloudGate());Model.watchReqs(()=>{if(this.USERSM&&this.USERSM.isConnected)this.renderUsers(this.USERSM)});
   }else{
-   Model.store=new LocalStore();View.status('Saved on this device',false);
+   Model.store=new LocalStore();View.status('',false);
    Model.watchUsers(()=>this.localGate());
   }}
 };
