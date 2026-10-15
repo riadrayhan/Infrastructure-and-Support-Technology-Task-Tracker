@@ -1,3 +1,6 @@
 .git
-.vercel
-README.md
+server/node_modules
+server/data
+server/test
+google-apps-script
+*.log

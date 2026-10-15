@@ -229,7 +229,13 @@ const View={
  chatStatus(live){
   const note=$('#c_note'),badge=$('#c_state');
   const ready=Boolean(live&&live.available),connected=Boolean(live&&live.connected);
-  if(badge){badge.textContent=connected?'● Live':'○ Offline';badge.classList.toggle('on',connected)}
+  if(badge){
+   /* Three honest states: a live socket, working through ordinary requests, or nothing yet. */
+   badge.textContent=connected?'● Live':(ready?'↻ Syncing':'○ Offline');
+   badge.classList.toggle('on',connected);
+   badge.title=connected?'Messages arrive instantly'
+    :(ready?'No socket here, so messages arrive within a few seconds':'Chat server not running');
+  }
   if(note){
    note.hidden=ready;
    if(!ready)note.innerHTML=`<b>Preview.</b> This is how chat looks. Messages start moving between

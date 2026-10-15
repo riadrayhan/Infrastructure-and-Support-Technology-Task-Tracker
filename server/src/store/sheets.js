@@ -51,7 +51,8 @@ class SheetsStore {
   }
 
   describe() {
-    return `Google Sheet ${this.spreadsheetId} as ${this.credentials && this.credentials.client_email}`;
+    const who = this.credentials ? this.credentials.client_email : 'no service account';
+    return `Google Sheet ${this.spreadsheetId || '(no id)'} as ${who}`;
   }
 
   /* ---------------------------------------------------------------- credentials */
@@ -130,8 +131,12 @@ class SheetsStore {
 
   /* ---------------------------------------------------------------- setup */
   async init() {
-    if (!this.spreadsheetId) throw new Error('GOOGLE_SHEET_ID is not set');
-    if (!this.credentials) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON is not set');
+    if (!this.credentials) {
+      throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON is not set – paste the service account JSON key');
+    }
+    if (!this.spreadsheetId) {
+      throw new Error('GOOGLE_SHEET_ID is not set – the id in the spreadsheet URL');
+    }
 
     const meta = await this.api('GET', '?fields=sheets.properties');
     this.tabs = {};
