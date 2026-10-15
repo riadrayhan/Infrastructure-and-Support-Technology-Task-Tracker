@@ -264,3 +264,8 @@ tr.c td{transition:background .15s}
   .chat-dock{right:16px;bottom:16px}
   .chat-pop{position:fixed;right:12px;left:12px;bottom:88px;width:auto;height:min(70vh,560px)}
 }
+
+/* Shown while no server is connected, so "saved" never means "saved only here" by surprise. */
+.offline-note{background:color-mix(in srgb,#d97706 12%,var(--surface));
+  border:1px solid color-mix(in srgb,#d97706 40%,transparent);color:var(--bs-body-color);
+  border-radius:14px;font-size:.86rem;padding:10px 14px;margin-bottom:4px}

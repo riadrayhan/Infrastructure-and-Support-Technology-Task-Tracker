@@ -358,6 +358,9 @@ const Presenter={
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&View.chatIsOpen()&&!document.querySelector('.modal.show'))this.closeChat()});
   Model.onChange(()=>{if(Model.session)this.draw()})},
 
+ /* --- is a server connected, and does the page say so --- */
+ noticeOffline(detail){View.setOfflineNotice(this.isLocal(),detail||'')},
+
  /* --- boot: pick the storage backend, then gate on identity --- */
  async boot(){
   this.bindEvents();View.who(null,false);this.go('overview');
@@ -392,6 +395,7 @@ const Presenter={
    Model.watchUsers(()=>this.cloudGate());Model.watchReqs(()=>{if(this.USERSM&&this.USERSM.isConnected)this.renderUsers(this.USERSM)});
   }else{
    Model.store=new LocalStore();View.status('',false);
+   this.noticeOffline(gasFailed?'The configured chat and data server did not answer.':'');
    Model.watchUsers(()=>this.localGate());
   }}
 };

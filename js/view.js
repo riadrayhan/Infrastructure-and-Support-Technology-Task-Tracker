@@ -69,7 +69,18 @@ const View={
   const n=badges&&badges[x[0]];
   return `<li class="nav-item"><button class="nav-link ${x[0]===cur?'active':''}" data-a="go" data-v="${x[0]}">${x[1]}`
    +(n?` <span class="badge rounded-pill unread">${n>99?'99+':n}</span>`:'')+`</button></li>`}).join('')},
- page(html){document.querySelectorAll('.tooltip').forEach(t=>t.remove());$('#v').innerHTML='<div class="fade-in">'+html+'</div>'},
+ page(html){document.querySelectorAll('.tooltip').forEach(t=>t.remove());
+  $('#v').innerHTML=(this.offlineBanner||'')+'<div class="fade-in">'+html+'</div>'},
+
+ /* Shown on every page while no server is connected, because otherwise work is saved into one
+    browser and quietly goes nowhere else – which looks exactly like the app being broken. */
+ offlineBanner:'',
+ setOfflineNotice(show,detail){
+  this.offlineBanner=show?`<div class="alert offline-note d-flex flex-wrap align-items-center gap-2" role="status">`
+   +`<span class="fs-5">📴</span><span><b>This device only.</b> No server is connected, so anything you`
+   +` add stays in this browser: it will not reach the Google Sheet, colleagues will not see it, and chat`
+   +` cannot run.${detail?' '+esc(detail):''}</span></div>`:''},
+
  /* --- gate screens shown while nobody is signed in --- */
  gate(kind,msg,storeKind,canEmail){
   const fld=(lbl,html)=>`<div class="mb-3"><label class="form-label small fw-semibold text-secondary mb-1">${lbl}</label>${html}</div>`;
