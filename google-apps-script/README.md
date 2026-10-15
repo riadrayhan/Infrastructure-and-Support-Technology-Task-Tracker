@@ -23,17 +23,26 @@ the same four roles, and the page works with either without any change to its sc
 
 Open <https://sheets.new> and name it, for example *Task Tracker Database*.
 
-**2. Paste the loader**
+**2. Paste the script**
 
-In that sheet choose **Extensions → Apps Script**. Select everything in `Code.gs` and replace it
-with the contents of [`Loader.gs`](Loader.gs) — a short file, about fifty lines. Save with Ctrl+S.
+In that sheet choose **Extensions → Apps Script**. Select everything in the editor and replace it
+with the whole of [`Code.gs`](Code.gs). Save with Ctrl+S.
 
-That file does not contain the tracker. It downloads the real code from this repository and runs
-it, which has two advantages: there is too little to paste for the wrong file to end up there, and
-improvements arrive on their own without anybody pasting again.
+It is one complete, self-contained file of about 1,260 lines. Nothing else is needed and it
+downloads nothing: the tracker is all there.
 
-> If you would rather paste the whole thing, [`Code.gs`](Code.gs) still works exactly as before.
-> It is about 1,250 lines and its first line of code is `var SHEETS = {`.
+Three ways to be sure you have the right file before you save:
+
+| Check | The script | The wrong file |
+|---|---|---|
+| Length | about 1,260 lines | 269 lines |
+| First line of code | `var SHEETS = {` | `(function (global) {` |
+| Search for `window.` | no results | ends with `})(window);` |
+
+> There is also [`Loader.gs`](Loader.gs), a fifty-line alternative that downloads this same code
+> at run time. Its advantage is that later improvements arrive without pasting again. Its cost is
+> that Apps Script cannot see what the downloaded code will do, so the loader has to declare the
+> permissions itself. Use whichever you prefer; the full file is the simpler of the two.
 
 **3. Run the setup once**
 
@@ -76,12 +85,19 @@ means the wrong code is in the editor, or step 4's new version was skipped.
 
 ### Keeping it up to date
 
-With the loader in place, a change to `Code.gs` in this repository reaches the deployment by
-itself within an hour, or immediately if you run `refreshTrackerCode`. Nothing needs pasting and
-nothing needs redeploying.
+After pasting the full `Code.gs`, a later improvement means pasting the new version over the old
+one and redeploying: **Deploy → Manage deployments → ✏ → Version: New version → Deploy**.
 
-If you pasted the whole `Code.gs` instead, Apps Script keeps serving the old version until you
-redeploy: **Deploy → Manage deployments → ✏ → Version: New version → Deploy**.
+If you used `Loader.gs` instead, changes to `Code.gs` in this repository reach the deployment by
+themselves within an hour, or immediately if you run `refreshTrackerCode`.
+
+### If a permission prompt does not appear
+
+Apps Script asks for permissions the first time a script needs them, and remembers the answer. If
+you replaced earlier code with this and saw *"Specified permissions are not sufficient"*, the old,
+narrower approval is still in force. Go to <https://myaccount.google.com> → **Data & privacy** →
+**Third-party apps and extensions**, remove this project, then run `setupTracker` again and accept
+the fuller prompt.
 
 ---
 

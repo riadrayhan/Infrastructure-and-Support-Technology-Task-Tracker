@@ -17,7 +17,7 @@
  *         Who has access:    Anyone            ← required, the page is not signed in to Google
  *      Copy the /exec URL it gives you.
  *   5. In index.html, before js/gsheet.js, add:
- *         <script>window.GAS_URL='https://script.google.com/macros/s/..../exec';</script>
+ *         set GAS_URL in index.html to the /exec address this deployment gives you.
  *
  * After step 3 the sheet contains the tabs Users, Items, Sessions, Requests and Audit, plus a
  * super admin to sign in with. The password is printed in the run log and can be changed in the
