@@ -359,7 +359,7 @@ const Presenter={
   Model.onChange(()=>{if(Model.session)this.draw()})},
 
  /* --- is a server connected, and does the page say so --- */
- noticeOffline(detail){View.setOfflineNotice(this.isLocal(),detail||'')},
+ noticeOffline(detail,canRetry){View.setOfflineNotice(this.isLocal(),detail||'',!!canRetry)},
 
  /* --- boot: pick the storage backend, then gate on identity --- */
  async boot(){
@@ -395,7 +395,7 @@ const Presenter={
    Model.watchUsers(()=>this.cloudGate());Model.watchReqs(()=>{if(this.USERSM&&this.USERSM.isConnected)this.renderUsers(this.USERSM)});
   }else{
    Model.store=new LocalStore();View.status('',false);
-   this.noticeOffline(gasFailed?'The configured chat and data server did not answer.':'');
+   this.noticeOffline(gasFailed?'The Google Sheet backend did not answer: '+(gasFailed.message||''):'',!!gasFailed);
    Model.watchUsers(()=>this.localGate());
   }}
 };

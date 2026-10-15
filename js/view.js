@@ -75,11 +75,15 @@ const View={
  /* Shown on every page while no server is connected, because otherwise work is saved into one
     browser and quietly goes nowhere else – which looks exactly like the app being broken. */
  offlineBanner:'',
- setOfflineNotice(show,detail){
+ setOfflineNotice(show,detail,canRetry){
   this.offlineBanner=show?`<div class="alert offline-note d-flex flex-wrap align-items-center gap-2" role="status">`
    +`<span class="fs-5">📴</span><span><b>This device only.</b> No server is connected, so anything you`
    +` add stays in this browser: it will not reach the Google Sheet, colleagues will not see it, and chat`
-   +` cannot run.${detail?' '+esc(detail):''}</span></div>`:''},
+   +` cannot run.${detail?' '+esc(detail):''}</span>`
+   /* A server that was configured but did not answer is usually just slow, so give the person a
+      way back to it instead of leaving them in this browser for the rest of the session. */
+   +(canRetry?`<button class="btn btn-sm btn-outline-dark ms-auto" onclick="location.reload()">Try the server again</button>`:'')
+   +`</div>`:''},
 
  /* --- gate screens shown while nobody is signed in --- */
  gate(kind,msg,storeKind,canEmail){

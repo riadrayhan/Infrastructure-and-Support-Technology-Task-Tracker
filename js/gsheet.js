@@ -120,9 +120,22 @@
     signedOut() { this.session = null; this.token = ''; writeToken(''); this.stopPolling(); }
 
     /* ---------- authentication ---------- */
+    /* Apps Script is slow. A warm health call measures 3.1–5.5s here, and the first one after
+       an idle spell has to compile and run the whole script before answering. The old six-second
+       deadline was inside that range, so one ordinary slow reply sent the page off to this
+       browser's own storage – which looks exactly like saved work vanishing. Wait properly, and
+       give a cold script a second chance. */
     async probe() {
-      try { this.lastError = null; return await this.call('health', null, 6000); }
-      catch (e) { this.lastError = e; return null; }
+      var budgets = [15000, 30000];
+      for (var i = 0; i < budgets.length; i++) {
+        try { this.lastError = null; return await this.call('health', null, budgets[i]); }
+        catch (e) {
+          this.lastError = e;
+          /* Slowness earns another try; a wrong URL or a private deployment does not. */
+          if (e.code !== 'offline' || i === budgets.length - 1) return null;
+        }
+      }
+      return null;
     }
 
     async me() {
