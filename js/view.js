@@ -41,16 +41,30 @@ const View={
   if(window.bootstrap)new bootstrap.Tooltip(document.body,{selector:'[data-bs-toggle="tooltip"]',trigger:'hover',delay:{show:350,hide:0}})},
  /* theme picker (dropdown in the hero) */
  themes:[],                       /* filled in by the Presenter at start-up */
+ /* The person signed in. Drawn, not an emoji, so it is the same shape on every device and sits
+    properly in the circle. It takes the text colour, which on the circle is white. */
+ ICON_USER:'<svg viewBox="0 0 16 16" width="1em" height="1em" fill="currentColor" aria-hidden="true">'
+  +'<circle cx="8" cy="5.1" r="2.9"/>'
+  +'<path d="M8 9.1c-3.1 0-5.3 1.8-5.3 4 0 .5.4.9.9.9h8.8c.5 0 .9-.4.9-.9 0-2.2-2.2-4-5.3-4Z"/></svg>',
+
+ /* The way out, drawn rather than borrowed from an emoji set: the arrow leaving a box that
+    every application uses for this, so it reads as "log out" and not as a door. It follows the
+    text colour, so it turns red with the rest of the item. */
+ ICON_LOGOUT:'<svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor"'
+  +' stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  +'<path d="M6.5 14H3.6A1.6 1.6 0 0 1 2 12.4V3.6A1.6 1.6 0 0 1 3.6 2h2.9"/>'
+  +'<path d="M10.4 11.2 13.6 8l-3.2-3.2"/><path d="M13.6 8H6.2"/></svg>',
+
  /* The Settings menu: who you are, your own account, the theme and signing out.
     `passwords` is false on the claude.ai build, where there is no password to change. */
  settingsMenu(sess,passwords){
   const box=$('#stm');if(!box)return;
   if(!sess){box.innerHTML='';return}
   const cur=document.documentElement.getAttribute('data-theme')||'light';
-  const item=(action,icon,label,extra)=>`<li><button class="dropdown-item d-flex align-items-center gap-2 ${extra||''}" data-a="${action}"><span style="width:1.3em">${icon}</span>${label}</button></li>`;
+  const item=(action,icon,label,extra)=>`<li><button class="dropdown-item d-flex align-items-center gap-2 ${extra||''}" data-a="${action}"><span class="mi">${icon}</span>${label}</button></li>`;
   box.innerHTML=
    `<li class="px-3 pt-2 pb-1"><div class="fw-semibold text-truncate d-flex align-items-center gap-2" style="max-width:220px">`
-   +`<span class="av av-sm av-ic" style="background:${ROLE_COL[sess.role]}">${ROLE_IC[sess.role]||'👤'}</span>`
+   +`<span class="av av-sm av-ic" style="background:${ROLE_COL[sess.role]}">${this.ICON_USER}</span>`
    +`<span class="text-truncate">${esc(sess.name)}</span></div>`
    +`<div class="text-secondary small text-truncate" style="max-width:220px">${esc(sess.email)}</div>`
    +`<span class="badge rounded-pill role mt-1" style="--c:${ROLE_COL[sess.role]}">${ROLE_LBL[sess.role]}</span></li>`
@@ -62,7 +76,7 @@ const View={
    +`<li><hr class="dropdown-divider"></li><li><h6 class="dropdown-header py-1">Theme</h6></li>`
    +(this.themes||[]).map(t=>`<li><button class="dropdown-item d-flex align-items-center gap-2 ${t.id===cur?'active':''}" data-a="theme" data-v="${t.id}"><span class="sw" style="background:${t.swatch}"></span>${t.label}${t.id===cur?'<span class="ms-auto">✓</span>':''}</button></li>`).join('')
    +`<li><hr class="dropdown-divider"></li>`
-   +item('signout','🚪','Logout','text-danger')},
+   +item('signout',this.ICON_LOGOUT,'Logout','text-danger')},
  /* KPI numbers count up from 0 after the overview renders */
  countUp(){if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
   document.querySelectorAll('.kpi b[data-n]').forEach(el=>{const n=+el.dataset.n||0;if(!n)return;const t0=performance.now(),D=700;
@@ -121,8 +135,8 @@ const View={
   this.settingsMenu(sess,local);
   /* The sign-in page carries nothing at all – no controls and no status line. */
   if(!sess){w.innerHTML='';this.status('',false);return}
-  /* The role's own icon, rather than an initial: it says at a glance what this person may do. */
-  w.innerHTML=`<span class="av av-sm av-ic" style="background:${ROLE_COL[sess.role]}" title="${esc(ROLE_LBL[sess.role]||'')}">${ROLE_IC[sess.role]||'👤'}</span><span class="d-none d-sm-inline-block text-truncate" style="max-width:160px" title="${esc(sess.email)}">${esc(sess.name)}</span><span class="badge rounded-pill role" style="--c:${ROLE_COL[sess.role]}">${ROLE_LBL[sess.role]}</span>`},
+  /* A person, on a circle in their role's colour, with the role spelled out alongside. */
+  w.innerHTML=`<span class="av av-sm av-ic" style="background:${ROLE_COL[sess.role]}" title="${esc(ROLE_LBL[sess.role]||'')}">${this.ICON_USER}</span><span class="d-none d-sm-inline-block text-truncate" style="max-width:160px" title="${esc(sess.email)}">${esc(sess.name)}</span><span class="badge rounded-pill role" style="--c:${ROLE_COL[sess.role]}">${ROLE_LBL[sess.role]}</span>`},
  ph:(ic,t,sub,c,act)=>`<div class="ph d-flex align-items-center flex-wrap gap-3" style="--c:${c}"><span class="pi">${ic}</span><div><h2 class="mb-0">${t}</h2><p class="mb-0 text-secondary small">${sub}</p></div><div class="pa ms-auto d-flex flex-wrap gap-2">${act||''}</div></div>`,
 
  /* Bootstrap modal shell: returns the .modal element; el.close() hides it, it removes itself once hidden */
