@@ -30,6 +30,11 @@ Everything needed is in the repository, including Bootstrap and the export libra
 | `js/export.js` | PDF / Excel / print service |
 | `css/style.css` | brand theming, themes and animation on top of Bootstrap |
 | `vendor/` | Bootstrap 5.3.3, SheetJS, jsPDF, jsPDF-AutoTable |
+| `js/gsheet.js` | the Google Sheet backend adapter, including chat over polling |
+| `js/api.js` | the Node.js backend adapter |
+| `js/chat.js` | one-to-one chat: a socket where there is one, polling where there is not |
+| `backend/` | the Node.js server, split the same way: `src/model`, `src/view`, `src/presenter` |
+| `google-apps-script/` | the same backend as an Apps Script, with the spreadsheet as its database |
 
 ## Accounts
 

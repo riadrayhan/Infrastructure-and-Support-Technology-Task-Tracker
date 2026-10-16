@@ -1,6 +1,6 @@
 .git
-server/node_modules
-server/data
-server/test
+backend/node_modules
+backend/data
+backend/test
 google-apps-script
 *.log

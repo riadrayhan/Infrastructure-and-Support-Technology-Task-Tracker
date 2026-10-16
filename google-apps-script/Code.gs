@@ -43,7 +43,8 @@ var SHEETS = {
   requests: { name: 'Requests', headers: ['id', 'email', 'name', 'at'] },
   archive:  { name: 'Archive',  headers: ['id', 'rows', 'at'] },
   resets:   { name: 'Resets',   headers: ['email', 'codeHash', 'expiresAt', 'attempts', 'createdAt'] },
-  audit:    { name: 'Audit',    headers: ['at', 'actor', 'role', 'action', 'target', 'detail'] }
+  audit:    { name: 'Audit',    headers: ['at', 'actor', 'role', 'action', 'target', 'detail'] },
+  messages: { name: 'Messages', headers: ['id', 'conversation', 'fromEmail', 'toEmail', 'body', 'at', 'readAt'] }
 };
 
 var ROLES = ['superadmin', 'admin', 'superuser', 'viewer'];
@@ -671,6 +672,92 @@ var ACTIONS = {
     });
   },
 
+  /* ---------- chat ---------- */
+
+  /* Chat is open to every signed-in role: a Viewer may only read the tracker, but can still
+     talk to colleagues. */
+
+  chatContacts: function (body, ctx) {
+    markSeen_(ctx.user.email);
+    var contacts = chatSummary_(ctx.user.email);
+    var online = onlineEmails_(contacts.map(function (c) { return c.email; }));
+    var unread = 0;
+    contacts.forEach(function (c) {
+      c.online = online.indexOf(c.email) !== -1;
+      unread += c.unread;
+    });
+    return {
+      me: { email: ctx.user.email, name: ctx.user.name, role: ctx.user.role },
+      contacts: contacts,
+      unread: unread,
+      /* No socket here, so the page polls instead of waiting to be pushed to. */
+      realtime: false
+    };
+  },
+
+  chatWith: function (body, ctx) {
+    var other = findUser_(body.email);
+    if (!other) throw fail_(404, 'not_found', 'No colleague with that email');
+    markSeen_(ctx.user.email);
+
+    var rows = conversationRows_(ctx.user.email, other.email);
+    var since = String(body.since || '');
+    if (since) rows = rows.filter(function (row) { return String(row.at) > since; });
+    var limit = Math.min(Math.max(Number(body.limit) || 200, 1), 500);
+    var marked = markConversationRead_(ctx.user.email, other.email);
+
+    return {
+      with: { email: other.email, name: other.name, role: other.role },
+      messages: rows.slice(-limit).map(messageOut_),
+      markedRead: marked
+    };
+  },
+
+  chatSend: function (body, ctx) {
+    var text = String(body.body === undefined || body.body === null ? '' : body.body).trim();
+    if (!text) throw fail_(400, 'empty_message', 'Write a message first');
+    if (text.length > MESSAGE_MAX_LENGTH) {
+      throw fail_(400, 'too_long', 'A message can be at most ' + MESSAGE_MAX_LENGTH + ' characters');
+    }
+    var other = findUser_(body.email);
+    if (!other) throw fail_(404, 'not_found', 'No colleague with that email');
+    var sender = normaliseEmail_(ctx.user.email);
+    var recipient = normaliseEmail_(other.email);
+    if (sender === recipient) throw fail_(400, 'self_message', 'You cannot message yourself');
+
+    markSeen_(ctx.user.email);
+    return withLock_(function () {
+      var row = {
+        id: Utilities.getUuid(),
+        conversation: conversationKey_(sender, recipient),
+        fromEmail: sender, toEmail: recipient, body: text,
+        at: nowIso_(), readAt: ''
+      };
+      appendRow_('messages', row);
+      audit_('chat.send', sender, ctx.user.role, recipient, text.length + ' characters');
+      return messageOut_(row);
+    });
+  },
+
+  chatRead: function (body, ctx) {
+    var other = findUser_(body.email);
+    if (!other) throw fail_(404, 'not_found', 'No colleague with that email');
+    markSeen_(ctx.user.email);
+    return withLock_(function () {
+      return { ok: true, marked: markConversationRead_(ctx.user.email, other.email) };
+    });
+  },
+
+  chatUnread: function (body, ctx) {
+    var mine = normaliseEmail_(ctx.user.email);
+    var rows = readTable_('messages');
+    var unread = 0;
+    rows.forEach(function (row) {
+      if (row.toEmail === mine && !String(row.readAt || '')) unread += 1;
+    });
+    return { unread: unread };
+  },
+
   listArchive: function () {
     return {
       batches: readTable_('archive').map(function (b) {
@@ -776,6 +863,8 @@ var ACTIONS = {
       }
       deleteRowAt_('users', index);
       destroySessionsFor_(email);
+      /* Their conversations go too, so no thread is left pointing at an account that is gone. */
+      removeMessagesFor_(email);
       audit_('user.delete', ctx.user.email, ctx.user.role, email, rows[index].role);
       return { ok: true, email: email };
     });
@@ -897,6 +986,131 @@ function assertCan_(role, capability) {
 
 function normaliseEmail_(value) { return String(value || '').trim().toLowerCase(); }
 function docId_(email) { return normaliseEmail_(email).replace(/[^a-z0-9]+/g, '_') || 'x'; }
+
+/* ======================= chat =======================
+
+   One-to-one chat, stored in the Messages tab like any other record.
+
+   There is no socket here: Apps Script answers a request and stops, so it cannot hold a
+   connection open. The page already copes with that - without a socket it polls - so chat works
+   the same way, a few seconds behind rather than instantly. That is the honest trade for having
+   the whole backend be a spreadsheet, and it is what makes chat work at all on this deployment.
+
+   `conversation` is the two addresses sorted and joined, which gives each pair one stable key
+   and makes "show me our conversation" a single cheap filter. */
+
+var MESSAGE_MAX_LENGTH = 4000;
+var PRESENCE_SECONDS = 90;        /* how long after their last poll somebody counts as online */
+
+function conversationKey_(a, b) {
+  return [normaliseEmail_(a), normaliseEmail_(b)].sort().join('|');
+}
+
+function messageOut_(row) {
+  return {
+    id: row.id, from: row.fromEmail, to: row.toEmail,
+    body: row.body, at: row.at, readAt: row.readAt || null
+  };
+}
+
+/* Presence lives in the cache, not the spreadsheet: it is true for ninety seconds at a time, so
+   writing a row for it would cost a write on every poll and leave stale rows behind. */
+function markSeen_(email) {
+  try { CacheService.getScriptCache().put('seen:' + normaliseEmail_(email), '1', PRESENCE_SECONDS); }
+  catch (err) { /* presence is a nicety; chat works without it */ }
+}
+
+function onlineEmails_(emails) {
+  var keys = emails.map(function (e) { return 'seen:' + normaliseEmail_(e); });
+  if (!keys.length) return [];
+  var found = {};
+  try { found = CacheService.getScriptCache().getAll(keys) || {}; } catch (err) { return []; }
+  return emails.filter(function (e) { return found['seen:' + normaliseEmail_(e)]; });
+}
+
+/**
+ * Everything the two of them have said, oldest first.
+ *
+ * Two messages can carry the same timestamp - the clock here only goes to the millisecond, and
+ * a quick exchange lands inside one. Where that happens the row order in the sheet decides, so
+ * the conversation reads the same way every time instead of flipping between two orders.
+ */
+function conversationRows_(a, b) {
+  var key = conversationKey_(a, b);
+  var rows = [];
+  readTable_('messages').forEach(function (row, index) {
+    if (row.conversation === key) rows.push({ row: row, index: index });
+  });
+  rows.sort(function (x, y) {
+    if (String(x.row.at) !== String(y.row.at)) return String(x.row.at) < String(y.row.at) ? -1 : 1;
+    return x.index - y.index;
+  });
+  return rows.map(function (entry) { return entry.row; });
+}
+
+/** Mark everything the other person sent me as read. Returns how many changed. */
+function markConversationRead_(me, other) {
+  var mine = normaliseEmail_(me);
+  var key = conversationKey_(me, other);
+  var rows = readTable_('messages');
+  var at = nowIso_();
+  var marked = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    if (row.conversation !== key || row.toEmail !== mine || String(row.readAt || '')) continue;
+    row.readAt = at;
+    updateRowAt_('messages', i, row);
+    marked += 1;
+  }
+  return marked;
+}
+
+/** One line per colleague: their last message to or from me, and how many I have not read. */
+function chatSummary_(me) {
+  var mine = normaliseEmail_(me);
+  var rows = readTable_('messages');
+  var byPerson = {};
+  rows.forEach(function (row) {
+    if (row.fromEmail !== mine && row.toEmail !== mine) return;
+    var other = row.fromEmail === mine ? row.toEmail : row.fromEmail;
+    var entry = byPerson[other] || { last: null, unread: 0 };
+    /* ">=" rather than ">": on a tie the row further down the sheet is the later one. */
+    if (!entry.last || String(row.at) >= String(entry.last.at)) entry.last = row;
+    if (row.toEmail === mine && !String(row.readAt || '')) entry.unread += 1;
+    byPerson[other] = entry;
+  });
+
+  var people = readTable_('users').filter(function (u) { return normaliseEmail_(u.email) !== mine; });
+  var contacts = people.map(function (u) {
+    var entry = byPerson[normaliseEmail_(u.email)] || { last: null, unread: 0 };
+    return {
+      email: u.email, name: u.name, role: u.role,
+      unread: entry.unread,
+      lastAt: entry.last ? entry.last.at : '',
+      lastBody: entry.last ? String(entry.last.body).slice(0, 80) : '',
+      lastFromMe: entry.last ? entry.last.fromEmail === mine : false
+    };
+  });
+  /* Whoever spoke last comes first, then by name, so the list is useful before anyone has. */
+  contacts.sort(function (a, b) {
+    if ((b.lastAt || '') !== (a.lastAt || '')) return (b.lastAt || '') < (a.lastAt || '') ? -1 : 1;
+    return String(a.name).localeCompare(String(b.name));
+  });
+  return contacts;
+}
+
+/** Used when an account is removed, so no orphan conversation is left behind. */
+function removeMessagesFor_(email) {
+  var target = normaliseEmail_(email);
+  var rows = readTable_('messages');
+  var removed = 0;
+  for (var i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].fromEmail !== target && rows[i].toEmail !== target) continue;
+    deleteRowAt_('messages', i);
+    removed += 1;
+  }
+  return removed;
+}
 
 function publicUser_(row) {
   if (!row) return null;

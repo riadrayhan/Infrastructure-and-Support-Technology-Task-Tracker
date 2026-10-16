@@ -57,7 +57,9 @@
       this.url = String(url || global.GAS_URL || '').trim();
       this.kind = 'api';              // the Presenter treats both backends identically
       this.flavour = 'gsheet';
-      this.supportsChat = false;      // chat needs a socket, which Apps Script cannot hold open
+      /* Chat works here, a few seconds behind: Apps Script cannot hold a socket open, so the
+         client falls back to polling, which it already knows how to do. */
+      this.supportsChat = true;
       this.subs = {};
       this.cache = { items: [], taskhist: [], users: [], requests: [] };
       this.usersById = {};
@@ -122,6 +124,21 @@
     /** Parity with js/api.js so shared code can use either store. Paths this backend does not
         implement must fail loudly: answering something unrelated would look like success. */
     request(method, path, body) {
+      /* The chat paths carry a colleague's address in them, so they are matched rather than
+         looked up. Everything else is a fixed path. */
+      if (path.indexOf('/api/chat/') === 0) {
+        var rest = path.slice('/api/chat/'.length);
+        var who = function (prefix) { return decodeURIComponent(rest.slice(prefix.length)); };
+        if (rest === 'contacts') return this.call('chatContacts');
+        if (rest === 'unread') return this.call('chatUnread');
+        if (rest.indexOf('with/') === 0) {
+          return method === 'POST'
+            ? this.call('chatSend', { email: who('with/'), body: body && body.body })
+            : this.call('chatWith', { email: who('with/') });
+        }
+        if (rest.indexOf('read/') === 0) return this.call('chatRead', { email: who('read/') });
+      }
+
       var map = {
         '/api/items': 'listItems', '/api/export': 'exportData',
         '/api/stats': 'stats', '/api/users': 'listUsers', '/api/audit': 'audit',

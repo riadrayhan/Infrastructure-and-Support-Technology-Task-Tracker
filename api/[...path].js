@@ -6,9 +6,9 @@
    Chat still works here, but over polling rather than a socket: Vercel's functions are
    short-lived, so nothing can hold a WebSocket open. The browser notices and falls back. */
 
-const store = require('../server/src/store');
-const { createHandler } = require('../server/src/app');
-const { ensureSeedAccounts } = require('../server/src/seed');
+const store = require('../backend/src/model/store');
+const { createHandler } = require('../backend/src/presenter/app');
+const { ensureSeedAccounts } = require('../backend/src/model/seed');
 
 let ready = null;
 const handler = createHandler(null);        // null: no live socket in a serverless function

@@ -714,3 +714,103 @@ test('a tab somebody typed over comes back when the views are rebuilt', () => {
   sandbox.rebuildViews();
   assert.match(spreadsheet.getSheetByName('Admin Projects').getRange(2, 1).getFormula(), /^=IFERROR/);
 });
+
+/* ---------------------------------------------------------------- CHAT */
+test('chat: two people hold a conversation, and it is stored in the sheet', () => {
+  const { call, tokens, spreadsheet } = freshWorld();
+
+  const sent = call('chatSend', {
+    token: tokens.admin, email: 'sohel@example.com', body: 'Can you take the UPS swap?',
+  });
+  assert.ok(!sent.error, JSON.stringify(sent.error || {}));
+  assert.equal(sent.from, 'amina@example.com');
+  assert.equal(sent.to, 'sohel@example.com');
+  assert.equal(sent.readAt, null);
+
+  /* It is a row in Messages like anything else, so the sheet is still the whole database. */
+  const rows = spreadsheet.getSheetByName('Messages').rows;
+  assert.equal(rows.length, 2, 'a header row and the message');
+
+  const reply = call('chatSend', {
+    token: tokens.superuser, email: 'amina@example.com', body: 'Yes, Thursday.',
+  });
+  assert.ok(!reply.error);
+
+  /* Either of them reads the same conversation, oldest first. */
+  for (const [token, other] of [[tokens.admin, 'sohel@example.com'], [tokens.superuser, 'amina@example.com']]) {
+    const thread = call('chatWith', { token, email: other });
+    assert.deepEqual(thread.messages.map(m => m.body), ['Can you take the UPS swap?', 'Yes, Thursday.']);
+  }
+});
+
+test('chat: unread counts drop to zero once the conversation is opened', () => {
+  const { call, tokens } = freshWorld();
+  call('chatSend', { token: tokens.admin, email: 'sohel@example.com', body: 'Ping' });
+  call('chatSend', { token: tokens.admin, email: 'sohel@example.com', body: 'Ping again' });
+
+  let contacts = call('chatContacts', { token: tokens.superuser });
+  assert.equal(contacts.me.email, 'sohel@example.com');
+  assert.equal(contacts.unread, 2);
+  assert.equal(contacts.realtime, false, 'there is no socket, so the page is told to poll');
+
+  const amina = contacts.contacts.find(c => c.email === 'amina@example.com');
+  assert.equal(amina.unread, 2);
+  assert.equal(amina.lastBody, 'Ping again');
+  assert.equal(amina.lastFromMe, false);
+  /* Whoever spoke last is first in the list. */
+  assert.equal(contacts.contacts[0].email, 'amina@example.com');
+
+  assert.equal(call('chatWith', { token: tokens.superuser, email: 'amina@example.com' }).markedRead, 2);
+  assert.equal(call('chatContacts', { token: tokens.superuser }).unread, 0);
+  /* The sender's own copy was never unread for them. */
+  assert.equal(call('chatUnread', { token: tokens.admin }).unread, 0);
+});
+
+test('chat: a Viewer may not edit the tracker but can still talk to colleagues', () => {
+  const { call, tokens } = freshWorld();
+  const sent = call('chatSend', { token: tokens.viewer, email: 'amina@example.com', body: 'Who owns P-1?' });
+  assert.ok(!sent.error, 'a viewer can send a message');
+  assert.equal(call('chatUnread', { token: tokens.admin }).unread, 1);
+});
+
+test('chat: an empty message, a stranger and yourself are all refused', () => {
+  const { call, tokens } = freshWorld();
+  assert.equal(call('chatSend', { token: tokens.admin, email: 'sohel@example.com', body: '   ' }).error.code, 'empty_message');
+  assert.equal(call('chatSend', { token: tokens.admin, email: 'nobody@example.com', body: 'Hello' }).error.code, 'not_found');
+  assert.equal(call('chatSend', { token: tokens.admin, email: 'amina@example.com', body: 'Hello' }).error.code, 'self_message');
+  const long = call('chatSend', { token: tokens.admin, email: 'sohel@example.com', body: 'x'.repeat(4001) });
+  assert.equal(long.error.code, 'too_long');
+});
+
+test('chat: signing out is required before chatting', () => {
+  const { call } = freshWorld();
+  assert.equal(call('chatContacts', {}).error.code, 'unauthorized');
+  assert.equal(call('chatSend', { email: 'sohel@example.com', body: 'Hello' }).error.code, 'unauthorized');
+});
+
+test('chat: somebody counts as online while they are still polling', () => {
+  const { call, tokens, cache } = freshWorld();
+
+  /* Asking for contacts is what the page does every few seconds, so it doubles as a heartbeat. */
+  call('chatContacts', { token: tokens.superuser });
+  let seen = call('chatContacts', { token: tokens.admin }).contacts.find(c => c.email === 'sohel@example.com');
+  assert.equal(seen.online, true);
+
+  /* Ninety seconds without a poll and the cache entry is gone, so they show as away. */
+  cache.clear();
+  seen = call('chatContacts', { token: tokens.admin }).contacts.find(c => c.email === 'sohel@example.com');
+  assert.equal(seen.online, false);
+});
+
+test('chat: removing an account takes its conversations with it', () => {
+  const { call, tokens } = freshWorld();
+  call('chatSend', { token: tokens.admin, email: 'sohel@example.com', body: 'Morning' });
+  call('chatSend', { token: tokens.superuser, email: 'vik@example.com', body: 'Morning' });
+
+  call('deleteUser', { token: tokens.superadmin, email: 'sohel@example.com' });
+
+  /* Nothing is left pointing at the account that is gone. */
+  assert.equal(call('chatUnread', { token: tokens.viewer }).unread, 0);
+  const left = call('chatContacts', { token: tokens.admin }).contacts.map(c => c.email);
+  assert.ok(!left.includes('sohel@example.com'));
+});

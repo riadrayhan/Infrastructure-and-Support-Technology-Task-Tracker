@@ -4,7 +4,7 @@ Use a Google Spreadsheet as the tracker's database. Everyone shares one live set
 no server to rent or maintain, and the records stay in a sheet you own and can open, filter and
 chart like any other.
 
-This is an alternative to the Node.js server in [`../server`](../server). Pick one. Both enforce
+This is an alternative to the Node.js server in [`../backend`](../backend). Pick one. Both enforce
 the same four roles, and the page works with either without any change to its screens.
 
 | | Google Sheets | Node.js server |

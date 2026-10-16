@@ -118,6 +118,7 @@ class FakeSpreadsheet {
 function load({ logs = [], outbox = [] } = {}) {
   const spreadsheet = new FakeSpreadsheet();
   const properties = new Map();
+  const cache = new Map();            // key -> {value, until}
   let uuidCounter = 0;
 
   const sandbox = {
@@ -162,6 +163,31 @@ function load({ logs = [], outbox = [] } = {}) {
     },
 
     Session: { getScriptTimeZone: () => 'UTC' },
+
+    /* Presence is kept in the cache rather than the spreadsheet, so the stub honours the expiry
+       it is given: that is the whole behaviour being relied on. */
+    CacheService: {
+      getScriptCache: () => ({
+        get(key) {
+          const entry = cache.get(key);
+          if (!entry) return null;
+          if (entry.until <= Date.now()) { cache.delete(key); return null; }
+          return entry.value;
+        },
+        getAll(keys) {
+          const out = {};
+          for (const key of keys) {
+            const value = this.get(key);
+            if (value !== null) out[key] = value;
+          }
+          return out;
+        },
+        put(key, value, seconds) {
+          cache.set(key, { value: String(value), until: Date.now() + (Number(seconds) || 600) * 1000 });
+        },
+        remove(key) { cache.delete(key); },
+      }),
+    },
 
     ContentService: {
       MimeType: { JSON: 'application/json' },
@@ -210,7 +236,7 @@ function load({ logs = [], outbox = [] } = {}) {
     return JSON.parse(output.getContent());
   };
 
-  return { sandbox, call, spreadsheet, properties, logs, outbox };
+  return { sandbox, call, spreadsheet, properties, cache, logs, outbox };
 }
 
 module.exports = { load };

@@ -264,7 +264,7 @@ const Presenter={
   View.chatDock(Boolean(Model.session));
   this.paintChat();
   if(typeof ChatClient==='undefined')return;
-  if(!this.isApi()||!Model.store.supportsChat)return;   /* chat needs the Node server's socket */
+  if(!this.isApi()||!Model.store.supportsChat)return;   /* no backend, no colleagues to talk to */
   if(this.chat)this.chat.stop();
   const chat=new ChatClient(Model.store);this.chat=chat;
   const repaint=()=>{if(View.chatIsOpen())this.paintChat();else View.chatBadge(chat.totalUnread())};
