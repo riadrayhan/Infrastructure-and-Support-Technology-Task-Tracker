@@ -38,7 +38,7 @@
 
 var SHEETS = {
   users:    { name: 'Users',    headers: ['email', 'name', 'role', 'password', 'externalId', 'createdAt', 'createdBy', 'updatedAt', 'lastLogin'] },
-  items:    { name: 'Items',    headers: ['id', 'type', 'title', 's', 'pri', 'f1', 'f2', 'sd', 'e', 'sh', 'ms', 'rm', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'] },
+  items:    { name: 'Items',    headers: ['id', 'type', 'title', 's', 'pri', 'f1', 'f2', 'sd', 'e', 'sh', 'ms', 'rm', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'role'] },
   sessions: { name: 'Sessions', headers: ['tokenHash', 'email', 'createdAt', 'expiresAt', 'userAgent'] },
   requests: { name: 'Requests', headers: ['id', 'email', 'name', 'at'] },
   archive:  { name: 'Archive',  headers: ['id', 'rows', 'at'] },
@@ -70,6 +70,106 @@ var WRITABLE_TYPES = {
   viewer:     []
 };
 
+/* ---------- the role-by-role tabs in the spreadsheet ----------
+
+   Items stays the one place a row is ever written. These extra tabs hold a single live FILTER
+   formula over it, so each role's work shows up on its own tab, split by type, and the views
+   cannot drift out of step with the data: change a row in Items, edit it in the page, or delete
+   it, and every tab that should show it follows on its own.
+
+   Which tabs exist comes from the permission model above, so a role that cannot create
+   Recurring items never gets an empty Recurring tab, and a change there is reflected the next
+   time rebuildViews runs. */
+
+var TYPE_TAB = { Project: 'Projects', Drive: 'Recurring', Task: 'Tasks' };
+
+function viewTabs_() {
+  var views = [];
+  ROLES.forEach(function (role) {
+    var label = ROLE_LABEL[role] || role;
+    /* everything this role created, whatever the type */
+    views.push({ name: label + ' data', role: role, type: '' });
+    /* then one tab per type it is allowed to create */
+    (WRITABLE_TYPES[role] || []).forEach(function (type) {
+      views.push({ name: label + ' ' + TYPE_TAB[type], role: role, type: type });
+    });
+  });
+  return views;
+}
+
+function columnLetter_(index) {
+  var letters = '';
+  var n = index;
+  while (n >= 0) {
+    letters = String.fromCharCode(65 + (n % 26)) + letters;
+    n = Math.floor(n / 26) - 1;
+  }
+  return letters;
+}
+
+/** The address of one Items column, as a whole-column range: role -> "Items!Q2:Q". */
+function itemsColumn_(header) {
+  var letter = columnLetter_(SHEETS.items.headers.indexOf(header));
+  return "Items!" + letter + "2:" + letter;
+}
+
+function viewFormula_(view) {
+  var headers = SHEETS.items.headers;
+  var rows = "Items!A2:" + columnLetter_(headers.length - 1);
+  var filter = "FILTER(" + rows + ", " + itemsColumn_('role') + '="' + view.role + '"';
+  if (view.type) filter += ", " + itemsColumn_('type') + '="' + view.type + '"';
+  filter += ")";
+  /* Grouped by type, then in the order the ids were given out. A role with nothing to show
+     gets an empty tab rather than #N/A. */
+  return '=IFERROR(SORT(' + filter + ', 2, TRUE, 1, TRUE), "")';
+}
+
+/** The accounts themselves, gathered by role, so who holds which role is one glance. */
+var ACCOUNTS_VIEW = 'Accounts by role';
+
+function accountsFormula_() {
+  var headers = SHEETS.users.headers;
+  var last = columnLetter_(headers.length - 1);
+  var keep = [];
+  headers.forEach(function (header, i) {
+    if (header !== 'password') keep.push('Users!' + columnLetter_(i) + '2:' + columnLetter_(i));
+  });
+  /* Everything but the password column, which no view has any business repeating. */
+  return '=IFERROR(SORT(FILTER({' + keep.join(', ') + '}, Users!A2:A<>""), 3, TRUE, 1, TRUE), "")';
+}
+
+/**
+ * Create or refresh every view tab. Safe to run again at any time: each tab is rebuilt from
+ * the formula, so one that somebody typed over comes back.
+ */
+function rebuildViews() {
+  var ss = spreadsheet_();
+  var itemHeaders = SHEETS.items.headers;
+  var made = [];
+
+  viewTabs_().forEach(function (view) {
+    var sh = ss.getSheetByName(view.name);
+    if (!sh) sh = ss.insertSheet(view.name);
+    sh.clear();
+    sh.getRange(1, 1, 1, itemHeaders.length).setValues([itemHeaders]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    sh.getRange(2, 1).setFormula(viewFormula_(view));
+    made.push(view.name);
+  });
+
+  var accountHeaders = SHEETS.users.headers.filter(function (h) { return h !== 'password'; });
+  var accounts = ss.getSheetByName(ACCOUNTS_VIEW);
+  if (!accounts) accounts = ss.insertSheet(ACCOUNTS_VIEW);
+  accounts.clear();
+  accounts.getRange(1, 1, 1, accountHeaders.length).setValues([accountHeaders]).setFontWeight('bold');
+  accounts.setFrozenRows(1);
+  accounts.getRange(2, 1).setFormula(accountsFormula_());
+  made.push(ACCOUNTS_VIEW);
+
+  Logger.log('Views rebuilt: %s', made.join(', '));
+  return made;
+}
+
 var CAPABILITIES = {
   superadmin: { view: true, export: true, manageUsers: true, viewAudit: true },
   admin:      { view: true, export: true, manageUsers: false, viewAudit: false },
@@ -98,8 +198,10 @@ var RESET_REQUEST_WINDOW_MIN = 60;
 function setupTracker() {
   var ss = spreadsheet_();
   Object.keys(SHEETS).forEach(function (key) { sheet_(key); });
-  /* Safe to repeat: it also fixes the date columns of a sheet made by an earlier version. */
+  /* All three are safe to repeat, and together they bring a sheet made by an earlier version
+     up to date: the date columns, the header rows, and the role of each existing row. */
   Object.keys(SHEETS).forEach(function (key) { markDayColumnsAsText_(key); });
+  Object.keys(SHEETS).forEach(function (key) { ensureHeaders_(key); });
 
   var props = PropertiesService.getScriptProperties();
   var email = (props.getProperty('SEED_EMAIL') || 'admin@tracker.com').toLowerCase();
@@ -130,6 +232,9 @@ function setupTracker() {
     Logger.log('Admin created.' + NL + '  email:    %s' + NL + '  password: %s', adminEmail, adminPassword);
     Logger.log('Super admin created.\n  email:    %s\n  password: %s\nChange it after the first sign-in.', email, password);
   }
+
+  Logger.log('Roles filled in on %s existing row(s).', fillInItemRoles_());
+  rebuildViews();
 
   Logger.log('Spreadsheet: %s', ss.getUrl());
   Logger.log('Now use Deploy → New deployment → Web app (Execute as: Me, Access: Anyone).');
@@ -173,7 +278,10 @@ function addSampleData() {
       type: sample[0], title: sample[1], s: sample[2], pri: sample[3],
       f1: sample[4], f2: sample[5], sd: sample[6], e: sample[7],
       sh: sample[8], ms: sample[9], rm: '',
-      createdAt: nowIso_(), createdBy: 'sample data', updatedAt: '', updatedBy: ''
+      createdAt: nowIso_(), createdBy: 'sample data', updatedAt: '', updatedBy: '',
+      /* Spread across the roles that would really have created this kind of work, so the
+         role tabs have something in them to look at. */
+      role: sample[0] === 'Task' ? 'superuser' : 'admin'
     };
     appendRow_('items', record);
     existing.push(record);
@@ -523,6 +631,9 @@ var ACTIONS = {
         created.id = /^[PDT]-\d+$/.test(id) ? id : nextId_(created.type, rows);
         created.createdAt = nowIso_();
         created.createdBy = ctx.user.email;
+        /* The role it was created with, so the spreadsheet can show each role its own work.
+           It comes from the session, never from the request, and editing never rewrites it. */
+        created.role = ctx.user.role;
         created.updatedAt = '';
         created.updatedBy = '';
         appendRow_('items', created);
@@ -1104,7 +1215,7 @@ function itemOut_(row) {
     id: row.id, type: row.type, title: row.title, s: row.s, pri: row.pri,
     f1: row.f1, f2: row.f2, sd: row.sd, e: row.e, sh: row.sh, ms: row.ms, rm: row.rm,
     createdAt: row.createdAt, createdBy: row.createdBy,
-    updatedAt: row.updatedAt, updatedBy: row.updatedBy
+    updatedAt: row.updatedAt, updatedBy: row.updatedBy, role: row.role || ''
   };
 }
 
@@ -1281,6 +1392,61 @@ function markDayColumnsAsText_(key) {
     if (!DAY_COLUMNS[header]) return;
     try { sh.getRange(2, i + 1, rows, 1).setNumberFormat('@'); } catch (err) {}
   });
+}
+
+/**
+ * Bring a tab's header row up to date with the spec above.
+ *
+ * Columns are only ever added at the end, so rewriting row 1 cannot move anybody's data: it
+ * names the column that a newer version of this file writes into. Without it, a spreadsheet
+ * made by an earlier version would keep a nameless column and the role views would filter on
+ * an empty header.
+ */
+function ensureHeaders_(key) {
+  var spec = SHEETS[key];
+  var sh = sheet_(key);
+  var width = sh.getLastColumn();
+  var current = width ? sh.getRange(1, 1, 1, width).getValues()[0] : [];
+  var same = current.length === spec.headers.length && spec.headers.every(function (h, i) {
+    return String(current[i] || '') === h;
+  });
+  if (same) return false;
+  sh.getRange(1, 1, 1, spec.headers.length).setValues([spec.headers]).setFontWeight('bold');
+  return true;
+}
+
+/**
+ * Fill in the role of whoever created each item that does not have one yet, by looking their
+ * address up in Users. This is what puts rows written before the role column existed onto the
+ * right tab instead of leaving them out of every view.
+ */
+function fillInItemRoles_() {
+  var sh = sheet_('items');
+  var last = sh.getLastRow();
+  if (last < 2) return 0;
+
+  var headers = SHEETS.items.headers;
+  var roleColumn = headers.indexOf('role') + 1;
+  var createdByColumn = headers.indexOf('createdBy') + 1;
+
+  var roleOf = {};
+  readTable_('users').forEach(function (u) { roleOf[normaliseEmail_(u.email)] = u.role; });
+
+  /* Read the two columns straight from the sheet, so a row stays matched with its own line
+     even if somebody left a blank one in the middle. */
+  var creators = sh.getRange(2, createdByColumn, last - 1, 1).getValues();
+  var roles = sh.getRange(2, roleColumn, last - 1, 1).getValues();
+
+  var filled = 0;
+  for (var i = 0; i < roles.length; i++) {
+    if (String(roles[i][0] || '')) continue;
+    var role = roleOf[normaliseEmail_(creators[i][0])] || '';
+    if (!role) continue;
+    roles[i][0] = role;
+    filled += 1;
+  }
+  if (filled) sh.getRange(2, roleColumn, roles.length, 1).setValues(roles);
+  return filled;
 }
 
 function rowValues_(key, object) {

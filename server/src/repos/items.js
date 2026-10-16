@@ -28,7 +28,7 @@ function toClient(row) {
     id: row.id, type: row.type, title: row.title, s: row.s, pri: row.pri,
     f1: row.f1, f2: row.f2, sd: row.sd, e: row.e, sh: row.sh, ms: row.ms, rm: row.rm,
     createdAt: row.createdAt, createdBy: row.createdBy,
-    updatedAt: row.updatedAt, updatedBy: row.updatedBy,
+    updatedAt: row.updatedAt, updatedBy: row.updatedBy, role: row.role || '',
   };
 }
 
@@ -119,7 +119,7 @@ function clean(input = {}, { partial = false } = {}) {
   return out;
 }
 
-async function create(input, actor) {
+async function create(input, actor, role) {
   const data = clean(input);
   const existing = await store.get().all('items');
   const wanted = String(input.id || '');
@@ -128,7 +128,10 @@ async function create(input, actor) {
     : await nextId(data.type, existing);
 
   await store.get().insert('items', {
+    /* The role it was created with, so a spreadsheet can show each role its own work. It comes
+       from the session, never from the request, and an edit never rewrites it. */
     ...data, id, createdAt: store.nowIso(), createdBy: actor || '', updatedAt: '', updatedBy: '',
+    role: role || '',
   });
   return byId(id);
 }

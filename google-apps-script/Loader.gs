@@ -43,7 +43,8 @@ function tracker_() {
 
   _tracker = eval('(function(){' + source + '\nreturn {' +
     'doGet: doGet, doPost: doPost, setupTracker: setupTracker, addSampleData: addSampleData,' +
-    'addSampleUsers: addSampleUsers, checkDeployment: checkDeployment, cleanUpSessions: cleanUpSessions' +
+    'addSampleUsers: addSampleUsers, checkDeployment: checkDeployment, cleanUpSessions: cleanUpSessions,' +
+    'rebuildViews: rebuildViews' +
     '};})()');
   return _tracker;
 }
@@ -83,6 +84,7 @@ function addSampleData() { return tracker_().addSampleData(); }
 function addSampleUsers() { return tracker_().addSampleUsers(); }
 function checkDeployment() { return tracker_().checkDeployment(); }
 function cleanUpSessions() { return tracker_().cleanUpSessions(); }
+function rebuildViews() { return tracker_().rebuildViews(); }
 
 /** Run this to pick up a code change straight away instead of waiting for the cache to expire. */
 function refreshTrackerCode() {

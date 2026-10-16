@@ -620,3 +620,97 @@ test('setup seeds both of the accounts the sign-in page offers', () => {
   assert.equal(stored.length, 1, 'and it must be in the sheet, not only in the reply');
   assert.equal(stored[0].title, 'Core banking upgrade');
 });
+
+/* ---------------------------------------------------------------- THE ROLE TABS */
+test('every role gets its own tab, and one per type it may create', () => {
+  const { sandbox, spreadsheet } = load();
+  sandbox.setupTracker();
+
+  const names = spreadsheet.getSheets().map(sh => sh.getName());
+  for (const expected of [
+    'Super admin data', 'Super admin Projects', 'Super admin Recurring', 'Super admin Tasks',
+    'Admin data', 'Admin Projects', 'Admin Recurring', 'Admin Tasks',
+    'Superuser data', 'Superuser Tasks',
+    'Viewer data', 'Accounts by role',
+  ]) {
+    assert.ok(names.includes(expected), `the "${expected}" tab should exist`);
+  }
+  /* A Superuser cannot create a Project, so an always-empty tab for one is not made. */
+  assert.ok(!names.includes('Superuser Projects'));
+  assert.ok(!names.includes('Viewer Tasks'));
+});
+
+test('a role tab shows that role its own rows, split by type', () => {
+  const { sandbox, spreadsheet } = load();
+  sandbox.setupTracker();
+
+  const role = name => spreadsheet.getSheetByName(name).getRange(2, 1).getFormula();
+
+  /* The role column is the seventeenth, so the views filter on Q. */
+  assert.match(role('Admin data'), /FILTER\(Items!A2:Q, Items!Q2:Q="admin"\)/);
+  assert.match(role('Admin Projects'), /Items!Q2:Q="admin", Items!B2:B="Project"/);
+  assert.match(role('Admin Recurring'), /Items!B2:B="Drive"/);
+  assert.match(role('Superuser Tasks'), /Items!Q2:Q="superuser", Items!B2:B="Task"/);
+  /* Grouped by type, then by id, and an empty tab rather than an error when there is nothing. */
+  assert.match(role('Viewer data'), /^=IFERROR\(SORT\(.*, 2, TRUE, 1, TRUE\), ""\)$/);
+});
+
+test('the accounts tab never repeats a password', () => {
+  const { sandbox, spreadsheet } = load();
+  sandbox.setupTracker();
+  const formula = spreadsheet.getSheetByName('Accounts by role').getRange(2, 1).getFormula();
+  const passwordColumn = 'Users!' + String.fromCharCode(65 + 3);   // email,name,role,password
+  assert.ok(!formula.includes(passwordColumn + '2:'), 'the password column must be left out');
+  assert.match(formula, /Users!C2:C/);                              // the role is there
+});
+
+test('an item records the role that created it, and editing does not rewrite it', () => {
+  const { call, tokens } = freshWorld();
+
+  const made = call('saveItem', {
+    token: tokens.superuser,
+    item: { type: 'Task', title: 'Reset the VPN tokens', f1: 'Sohel', s: 'Ongoing', pri: 'Mid' },
+  });
+  assert.equal(made.role, 'superuser');
+
+  /* An admin editing a superuser's task must not make it the admin's row, and nobody can
+     claim a role by sending one. */
+  const edited = call('saveItem', {
+    token: tokens.admin,
+    id: made.id,
+    item: { title: 'Reset the VPN tokens for field staff', role: 'admin' },
+  });
+  assert.equal(edited.role, 'superuser');
+  assert.equal(edited.updatedBy, 'amina@example.com');
+});
+
+test('rows written before the role column existed are put on the right tab', () => {
+  const { call, tokens, sandbox, spreadsheet } = freshWorld();
+  const made = call('saveItem', {
+    token: tokens.admin,
+    item: { type: 'Project', title: 'Core banking upgrade', f1: 'Amina', s: 'Ongoing', pri: 'High' },
+  });
+
+  /* Blank the role, the way a sheet filled in by an earlier version would be. */
+  const sheet = spreadsheet.getSheetByName('Items');
+  const line = sheet.rows.findIndex(r => r[0] === made.id);
+  sheet.rows[line][16] = '';
+  assert.equal(call('listItems', { token: tokens.admin }).items.find(i => i.id === made.id).role, '');
+
+  const filled = sandbox.fillInItemRoles_();
+  assert.equal(filled, 1);
+  assert.equal(call('listItems', { token: tokens.admin }).items.find(i => i.id === made.id).role,
+    'admin', 'the role comes from whoever created it');
+});
+
+test('a tab somebody typed over comes back when the views are rebuilt', () => {
+  const { sandbox, spreadsheet } = load();
+  sandbox.setupTracker();
+
+  const tab = spreadsheet.getSheetByName('Admin Projects');
+  tab.getRange(2, 1, 1, 1).setValues([['somebody pasted this over the formula']]);
+  assert.equal(tab.getRange(2, 1).getFormula(), '');
+
+  sandbox.rebuildViews();
+  assert.match(spreadsheet.getSheetByName('Admin Projects').getRange(2, 1).getFormula(), /^=IFERROR/);
+});

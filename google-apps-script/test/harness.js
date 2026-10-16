@@ -48,6 +48,8 @@ class FakeRange {
       line.forEach((v, c) => {
         const column = this.col - 1 + c;
         this.sheet.rows[target][column] = asSheetsWouldStore(v, this.sheet.formats[column]);
+        /* Typing a value over a formula removes the formula, here as in Sheets. */
+        delete this.sheet.formulas[target + ',' + column];
       });
     });
     return this;
@@ -65,11 +67,28 @@ class FakeRange {
     return this;
   }
   setFontWeight() { return this; }
+  /* Formulas are not evaluated here: a test can read back what a view tab was told to show,
+     which is the part this code is responsible for. Google does the arithmetic. */
+  setFormula(formula) {
+    while (this.sheet.rows.length < this.row) this.sheet.rows.push([]);
+    this.sheet.rows[this.row - 1][this.col - 1] = formula;
+    this.sheet.formulas[(this.row - 1) + ',' + (this.col - 1)] = formula;
+    return this;
+  }
+  getFormula() { return this.sheet.formulas[(this.row - 1) + ',' + (this.col - 1)] || ''; }
 }
 
 class FakeSheet {
-  constructor(name) { this.name = name; this.rows = []; this.formats = []; }
+  constructor(name) { this.name = name; this.rows = []; this.formats = []; this.formulas = {}; }
   getMaxRows() { return Math.max(this.rows.length, 1000); }
+  getLastColumn() {
+    let width = 0;
+    for (const line of this.rows) {
+      for (let c = 0; c < (line || []).length; c++) if (String(line[c] ?? '').length) width = Math.max(width, c + 1);
+    }
+    return width;
+  }
+  clear() { this.rows = []; this.formats = []; this.formulas = {}; return this; }
   getLastRow() {
     for (let i = this.rows.length - 1; i >= 0; i--) {
       if ((this.rows[i] || []).some(v => String(v ?? '').length)) return i + 1;
@@ -92,6 +111,7 @@ class FakeSpreadsheet {
   insertSheet(name) { const s = new FakeSheet(name); this.sheets.set(name, s); return s; }
   getUrl() { return 'https://docs.google.com/spreadsheets/d/fake'; }
   getSpreadsheetTimeZone() { return FAKE_TIME_ZONE; }
+  getSheets() { return [...this.sheets.values()]; }
 }
 
 /* ---------- load Code.gs with the Apps Script services replaced ---------- */

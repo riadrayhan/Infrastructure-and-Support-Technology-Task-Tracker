@@ -61,7 +61,7 @@ function register(router) {
       throw badRequest(`Type must be one of: ${permissions.TYPES.join(', ')}`, 'bad_type');
     }
     permissions.assert(me.role, 'write', type);          // Superuser: Task only
-    const created = await items.create(body, me.email);
+    const created = await items.create(body, me.email, me.role);
     await audit.log({ actor: me.email, role: me.role, action: 'item.create', target: created.id,
                 detail: { type: created.type, title: created.title }, ip: clientIp(req) });
     sendJson(res, 201, created);

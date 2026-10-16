@@ -61,6 +61,7 @@ Optional extras, run the same way:
 |---|---|
 | `addSampleData` | writes thirteen realistic projects, recurring items and tasks |
 | `addSampleUsers` | one account per role for testing |
+| `rebuildViews` | recreates the per-role tabs, after a role change or an accidental edit |
 | `checkDeployment` | checks the installation and prints what is wrong, if anything |
 | `refreshTrackerCode` | pulls the newest code immediately instead of waiting for the cache |
 
@@ -149,12 +150,29 @@ Tune `RESET_CODE_MINUTES`, `RESET_MAX_TRIES` and `RESET_MAX_REQUESTS` near the t
 | Tab | Holds | Safe to edit by hand? |
 |---|---|---|
 | `Users` | email, name, role, hashed password | Name and role yes. Never type a password here – it must be hashed. |
-| `Items` | every project, recurring item and task | Yes, if you keep the column order |
+| `Items` | every project, recurring item and task, with the role that created each | Yes, if you keep the column order |
 | `Sessions` | who is currently signed in | Clearing it signs everyone out |
 | `Requests` | people waiting for an account | Yes |
 | `Archive` | older tasks kept for reference | Leave to the app |
 | `Resets` | hashed password-reset codes, short-lived | Leave to the app |
 | `Audit` | who changed what, and when | Append-only; do not edit |
+
+And one tab per role, rebuilt from the data rather than written to:
+
+| Tab | Holds |
+|---|---|
+| `Super admin data`, `Admin data`, `Superuser data`, `Viewer data` | everything that role created, grouped by type |
+| `Admin Projects`, `Admin Recurring`, `Admin Tasks` | that role's work, one type per tab |
+| `Super admin Projects`, `Super admin Recurring`, `Super admin Tasks` | the same for the super admin |
+| `Superuser Tasks` | a Superuser may only create Tasks, so that is the only tab it gets |
+| `Accounts by role` | who holds which role, every column but the password |
+
+Each of these holds a single live `FILTER` formula over `Items`, so they follow the data on
+their own: add a row in the page, edit one in `Items`, or delete it, and every tab that should
+show it changes with it. Nothing is written twice, so the views cannot drift out of step.
+
+Which tabs exist comes from the permission model, so a role that cannot create Recurring items
+never gets an empty Recurring tab. Type over one by accident and `rebuildViews` puts it back.
 
 Because `Items` is an ordinary sheet you can build pivot tables, charts and Looker Studio reports
 straight on top of the live data.

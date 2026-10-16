@@ -111,12 +111,14 @@ test('superuser: can create, edit, change the status of and delete a Task', asyn
   assert.match(created.body.id, /^T-\d+$/);
   assert.equal(created.body.s, 'Ongoing');
   assert.equal(created.body.createdBy, 'sohel@example.com');
+  assert.equal(created.body.role, 'superuser', 'the role it was created with is recorded');
 
   const edited = await call('PATCH', `/api/items/${created.body.id}`, {
-    token: tokens.superuser, body: { title: 'Replace UPS battery – HO', ms: 'Quote - Done\nFit - Ongoing' },
+    token: tokens.superuser, body: { role: 'superadmin', title: 'Replace UPS battery – HO', ms: 'Quote - Done\nFit - Ongoing' },
   });
   assert.equal(edited.status, 200);
   assert.equal(edited.body.title, 'Replace UPS battery – HO');
+  assert.equal(edited.body.role, 'superuser', 'a role cannot be claimed by sending one');
 
   const status = await call('PATCH', `/api/items/${created.body.id}`, {
     token: tokens.superuser, body: { s: 'On Hold' },
