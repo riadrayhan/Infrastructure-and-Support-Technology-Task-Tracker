@@ -31,6 +31,11 @@ function register(router) {
 
   /* ---- POST /api/auth/forgot – email a six-digit code ---- */
   router.post('/api/auth/forgot', async (req, res, ctx) => {
+    /* Refused before anything else when email is off, so no code is written to the database
+       for a message that will never be sent. */
+    if (!config.mail.enabled) {
+      throw badRequest('Password reset by email is switched off here. Ask the super admin to set a new password for you.', 'mail_off');
+    }
     const body = await readJson(req);
     const email = users.normalizeEmail(body.email);
     const ip = clientIp(req);

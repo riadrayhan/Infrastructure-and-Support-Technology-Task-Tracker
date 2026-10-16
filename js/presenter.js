@@ -111,7 +111,9 @@ const Presenter={
   if(this.isApi()){try{await Model.store.logout()}catch(e){}}
   Model.session=null;try{localStorage.removeItem('tracker.session')}catch(e){}View.who(null,this.usesPasswords());this.setGate('login')},
  /* Only a backend can email a code; the browser-only build cannot. */
- canEmailCode(){return!!(Model.store&&Model.store.kind==='api'&&typeof Model.store.forgotPassword==='function')},
+ /* Only offered when a backend says it can actually send one. A link that leads to
+    "email is switched off" is worse than no link. */
+ canEmailCode(){return!!(Model.store&&Model.store.kind==='api'&&Model.store.emailReset&&typeof Model.store.forgotPassword==='function')},
 
  /* wire the gate screens (setup / login / forgot / reset) after View.gate() rendered them */
  /* The sign-in page offers the same accounts whether or not a server is connected, so an
@@ -390,6 +392,8 @@ const Presenter={
    setTimeout(()=>View.toast('Google Sheet backend unavailable – using this device only. '+(gasFailed.message||'')),800)}
   if(store&&health){
    Model.store=store;
+   /* A backend that cannot send email says so in its health answer. */
+   store.emailReset=!!health.email;
    store.onAuthLost=()=>{if(Model.session){Model.session=null;View.who(null,true);View.toast('Your session ended – please sign in again')}this.setGate('login')};
    store.onNotice=msg=>View.toast(msg);
    store.onError=e=>{if(e&&e.status===0)View.status('Server unreachable – retrying…',false)};

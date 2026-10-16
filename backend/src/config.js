@@ -91,7 +91,8 @@ const config = {
       }
     : null,
 
-  /* Sending the "forgot password" code. 'console' just logs it, which needs no account. */
+  /* Sending the "forgot password" code. 'console' just logs it, which needs no account;
+     'off' switches the whole feature out, and the page then stops offering it. */
   mail: {
     transport: (process.env.MAIL_TRANSPORT || 'console').toLowerCase(),
     host: process.env.MAIL_HOST || '',
@@ -100,6 +101,7 @@ const config = {
     pass: process.env.MAIL_PASS || '',
     from: process.env.MAIL_FROM || process.env.MAIL_USER || 'tracker@localhost',
     fromName: process.env.MAIL_FROM_NAME || 'Task and Project Tracker',
+    get enabled() { return this.transport !== 'off'; },
   },
 
   /* Forgotten-password codes */

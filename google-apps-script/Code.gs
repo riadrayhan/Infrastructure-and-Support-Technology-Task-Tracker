@@ -184,6 +184,11 @@ var PRIORITIES = ['High', 'Mid', 'Low'];
 var PREFIX = { Project: 'P', Drive: 'D', Task: 'T' };
 
 var SESSION_HOURS = 12;
+/* Sending a forgotten-password code by email. Off, because the tracker does not need it to
+   work: a super admin sets a new password from the Team tab, which is one step either way and
+   leaves no code in a mailbox. Set this to true to offer it again. */
+var ALLOW_EMAIL_RESET = false;
+
 var HASH_ROUNDS = 500;          // raise for more protection, lower if sign-in feels slow
 var LOGIN_MAX_ATTEMPTS = 8;
 var LOGIN_WINDOW_MIN = 15;
@@ -448,7 +453,9 @@ var ACTIONS = {
   health: function () {
     return {
       ok: true, service: 'task-tracker-gas', version: '1.0.0',
-      time: nowIso_(), setupRequired: readTable_('users').length === 0, roles: ROLES
+      time: nowIso_(), setupRequired: readTable_('users').length === 0, roles: ROLES,
+      /* So the page knows whether to offer "Forgot your password?" at all. */
+      email: ALLOW_EMAIL_RESET
     };
   },
 
@@ -546,6 +553,11 @@ var ACTIONS = {
    * The answer is the same either way, so the script never reveals who has an account.
    */
   forgotPassword: function (body) {
+    /* Refused before anything else, so no code is written for a message nobody will send. */
+    if (!ALLOW_EMAIL_RESET) {
+      throw fail_(400, 'mail_off',
+        'Password reset by email is switched off here. Ask the super admin to set a new password for you.');
+    }
     var email = normaliseEmail_(body.email);
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
       throw fail_(400, 'bad_email', 'Enter a valid email address');

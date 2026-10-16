@@ -40,6 +40,8 @@ function register(router) {
       time: db.nowIso(),
       setupRequired: await users.count() === 0,
       roles: permissions.ROLES,
+      /* So the page knows whether to offer "Forgot your password?" at all. */
+      email: config.mail.enabled,
     });
   });
 

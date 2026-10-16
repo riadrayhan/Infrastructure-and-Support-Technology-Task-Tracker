@@ -311,3 +311,24 @@ test('profile: a signed-in person can rename themselves but not change their rol
   assert.equal((await call('POST', '/api/auth/profile', { token, body: { name: '   ' } })).body.error.code, 'bad_name');
   assert.equal((await call('POST', '/api/auth/profile', { body: { name: 'Nobody' } })).status, 401);
 });
+
+test('with email switched off, no code is issued and the page is told', async () => {
+  /* MAIL_TRANSPORT=off is how this deployment runs: chat and the tracker need no email, and a
+     link offering a code that cannot be sent is worse than no link at all. */
+  const config = require('../src/config');
+  const original = config.mail.transport;
+  config.mail.transport = 'off';
+  try {
+    const before = mailer.outbox.length;
+    const res = await call('POST', '/api/auth/forgot', { body: { email: 'sohel@example.com' } });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error.code, 'mail_off');
+    assert.match(res.body.error.message, /super admin/);
+    assert.equal(mailer.outbox.length, before, 'nothing was sent');
+
+    const health = await call('GET', '/api/health');
+    assert.equal(health.body.email, false, 'the page is told not to offer it');
+  } finally {
+    config.mail.transport = original;
+  }
+});

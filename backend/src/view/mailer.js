@@ -2,6 +2,7 @@
 /* mailer.js – sends the "forgot password" code by email.
 
    Three transports, chosen with MAIL_TRANSPORT:
+     off      no email at all. The forgotten-password flow is refused and the page hides it.
      smtp     a real mail server. Works with any SMTP provider, including a free Gmail account
               with an App Password, Brevo, Mailjet, Zoho and so on. Uses Node's own net/tls,
               so there is still nothing to npm install.
@@ -186,6 +187,16 @@ async function authenticateAndSend(ctx, { user, pass, from, to, message }) {
  */
 async function send({ to, subject, text, html }) {
   const transport = config.mail.transport;
+
+  /* Switched off on purpose. Nothing is queued or half-sent: the caller is told at once, so it
+     can say something true to the person waiting rather than promising a code that will not
+     arrive. */
+  if (transport === 'off') {
+    const err = new Error('Email is switched off on this server');
+    err.code = 'mail_off';
+    throw err;
+  }
+
   const from = config.mail.from;
   const fromName = config.mail.fromName;
 

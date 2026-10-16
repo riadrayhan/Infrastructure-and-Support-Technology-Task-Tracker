@@ -409,8 +409,26 @@ function codeFromOutbox(outbox) {
   return match[1];
 }
 
-test('forgot password: a code arrives by email and changes the password', () => {
+/* Emailing a reset code is off by default - the tracker does not need it, and a super admin
+   can set a password from the Team tab. These tests turn it on, because they are about what it
+   does when it is on; the test right below is about it being off. */
+function worldWithEmail() {
+  const world = freshWorld();
+  world.sandbox.ALLOW_EMAIL_RESET = true;
+  return world;
+}
+
+test('forgot password: it is off unless it is switched on, and says so', () => {
   const { call, outbox } = freshWorld();
+  const asked = call('forgotPassword', { email: 'sohel@example.com' });
+  assert.equal(asked.error.code, 'mail_off');
+  assert.match(asked.error.message, /super admin/);
+  assert.equal(outbox.length, 0, 'nothing is sent');
+  assert.equal(call('health', {}).email, false, 'and the page is told not to offer it');
+});
+
+test('forgot password: a code arrives by email and changes the password', () => {
+  const { call, outbox } = worldWithEmail();
 
   const asked = call('forgotPassword', { email: 'sohel@example.com' });
   assert.equal(asked.ok, true);
@@ -432,7 +450,7 @@ test('forgot password: a code arrives by email and changes the password', () => 
 });
 
 test('forgot password: the code is not stored in a usable form', () => {
-  const { call, sandbox, outbox } = freshWorld();
+  const { call, sandbox, outbox } = worldWithEmail();
   call('forgotPassword', { email: 'vik@example.com' });
   const code = codeFromOutbox(outbox);
 
@@ -444,7 +462,7 @@ test('forgot password: the code is not stored in a usable form', () => {
 });
 
 test('forgot password: an unknown address gets the same answer and no email', () => {
-  const { call, outbox } = freshWorld();
+  const { call, outbox } = worldWithEmail();
   const before = outbox.length;
   const res = call('forgotPassword', { email: 'nobody@example.com' });
   assert.equal(res.ok, true, 'the answer must not reveal who has an account');
@@ -453,7 +471,7 @@ test('forgot password: an unknown address gets the same answer and no email', ()
 });
 
 test('forgot password: a wrong code is refused and runs out of tries', () => {
-  const { call, outbox } = freshWorld();
+  const { call, outbox } = worldWithEmail();
   call('forgotPassword', { email: 'vik@example.com' });
   const code = codeFromOutbox(outbox);
   const wrong = code === '000000' ? '111111' : '000000';
@@ -469,7 +487,7 @@ test('forgot password: a wrong code is refused and runs out of tries', () => {
 });
 
 test('forgot password: an expired code is refused', () => {
-  const { call, sandbox, outbox } = freshWorld();
+  const { call, sandbox, outbox } = worldWithEmail();
   call('forgotPassword', { email: 'vik@example.com' });
   const code = codeFromOutbox(outbox);
 
@@ -483,7 +501,7 @@ test('forgot password: an expired code is refused', () => {
 });
 
 test('forgot password: a code cannot be used twice', () => {
-  const { call, outbox } = freshWorld();
+  const { call, outbox } = worldWithEmail();
   call('forgotPassword', { email: 'vik@example.com' });
   const code = codeFromOutbox(outbox);
   assert.equal(call('resetPassword', { email: 'vik@example.com', code, newPassword: 'firstpass' }).ok, true);
@@ -492,7 +510,7 @@ test('forgot password: a code cannot be used twice', () => {
 });
 
 test('forgot password: a reset signs that person out everywhere', () => {
-  const { call, tokens, outbox } = freshWorld();
+  const { call, tokens, outbox } = worldWithEmail();
   assert.equal(call('me', { token: tokens.viewer }).user.email, 'vik@example.com');
 
   call('forgotPassword', { email: 'vik@example.com' });
@@ -502,7 +520,7 @@ test('forgot password: a reset signs that person out everywhere', () => {
 });
 
 test('forgot password: one address cannot be used to send a flood of email', () => {
-  const { call, outbox } = freshWorld();
+  const { call, outbox } = worldWithEmail();
   let blocked = false;
   for (let i = 0; i < 10; i++) {
     const res = call('forgotPassword', { email: 'vik@example.com' });
@@ -513,7 +531,7 @@ test('forgot password: one address cannot be used to send a flood of email', () 
 });
 
 test('forgot password: input is checked', () => {
-  const { call, outbox } = freshWorld();
+  const { call, outbox } = worldWithEmail();
   assert.equal(call('forgotPassword', { email: 'not-an-email' }).error.code, 'bad_email');
   call('forgotPassword', { email: 'vik@example.com' });
   const code = codeFromOutbox(outbox);
@@ -522,7 +540,7 @@ test('forgot password: input is checked', () => {
 });
 
 test('forgot password: works without being signed in', () => {
-  const { call } = freshWorld();
+  const { call } = worldWithEmail();
   /* no token is passed anywhere in this test, which is the whole point */
   const res = call('forgotPassword', { email: 'amina@example.com' });
   assert.equal(res.ok, true);
