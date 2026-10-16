@@ -23,6 +23,9 @@ const ROLES=['superadmin','admin','superuser','viewer'];
 const ROLE_LBL={superadmin:'Super admin',admin:'Admin',superuser:'Superuser',viewer:'Viewer'};
 const ROLE_DESC={superadmin:'Full access, plus user and role management',admin:'Create, edit, delete and export everything',superuser:'View everything · create and edit Tasks · export',viewer:'View only'};
 const ROLE_COL={superadmin:'#ec008c',admin:'#4f46e5',superuser:'#0891b2',viewer:'#64748b'};
+/* One glyph per role, shown beside whoever is signed in. Single characters, so they render
+   the same everywhere instead of breaking into pieces on a device without the newer emoji. */
+const ROLE_IC={superadmin:'🛡️',admin:'⚙️',superuser:'✏️',viewer:'👁️'};
 
 /* SHA-256 in plain JavaScript – used where crypto.subtle is unavailable (http:// pages, older browsers),
    so the same password always gives the same hash on every device */

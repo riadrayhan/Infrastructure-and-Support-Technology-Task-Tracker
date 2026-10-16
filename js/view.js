@@ -49,7 +49,9 @@ const View={
   const cur=document.documentElement.getAttribute('data-theme')||'light';
   const item=(action,icon,label,extra)=>`<li><button class="dropdown-item d-flex align-items-center gap-2 ${extra||''}" data-a="${action}"><span style="width:1.3em">${icon}</span>${label}</button></li>`;
   box.innerHTML=
-   `<li class="px-3 pt-2 pb-1"><div class="fw-semibold text-truncate" style="max-width:220px">${esc(sess.name)}</div>`
+   `<li class="px-3 pt-2 pb-1"><div class="fw-semibold text-truncate d-flex align-items-center gap-2" style="max-width:220px">`
+   +`<span class="av av-sm av-ic" style="background:${ROLE_COL[sess.role]}">${ROLE_IC[sess.role]||'👤'}</span>`
+   +`<span class="text-truncate">${esc(sess.name)}</span></div>`
    +`<div class="text-secondary small text-truncate" style="max-width:220px">${esc(sess.email)}</div>`
    +`<span class="badge rounded-pill role mt-1" style="--c:${ROLE_COL[sess.role]}">${ROLE_LBL[sess.role]}</span></li>`
    +`<li><hr class="dropdown-divider"></li>`
@@ -60,7 +62,7 @@ const View={
    +`<li><hr class="dropdown-divider"></li><li><h6 class="dropdown-header py-1">Theme</h6></li>`
    +(this.themes||[]).map(t=>`<li><button class="dropdown-item d-flex align-items-center gap-2 ${t.id===cur?'active':''}" data-a="theme" data-v="${t.id}"><span class="sw" style="background:${t.swatch}"></span>${t.label}${t.id===cur?'<span class="ms-auto">✓</span>':''}</button></li>`).join('')
    +`<li><hr class="dropdown-divider"></li>`
-   +item('signout','⎋','Sign out','text-danger')},
+   +item('signout','🚪','Logout','text-danger')},
  /* KPI numbers count up from 0 after the overview renders */
  countUp(){if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
   document.querySelectorAll('.kpi b[data-n]').forEach(el=>{const n=+el.dataset.n||0;if(!n)return;const t0=performance.now(),D=700;
@@ -119,7 +121,8 @@ const View={
   this.settingsMenu(sess,local);
   /* The sign-in page carries nothing at all – no controls and no status line. */
   if(!sess){w.innerHTML='';this.status('',false);return}
-  w.innerHTML=`<span class="av av-sm" style="background:${avc(sess.name||'?')}">${esc((sess.name||'?')[0])}</span><span class="d-none d-sm-inline-block text-truncate" style="max-width:160px" title="${esc(sess.email)}">${esc(sess.name)}</span><span class="badge rounded-pill role" style="--c:${ROLE_COL[sess.role]}">${ROLE_LBL[sess.role]}</span>`},
+  /* The role's own icon, rather than an initial: it says at a glance what this person may do. */
+  w.innerHTML=`<span class="av av-sm av-ic" style="background:${ROLE_COL[sess.role]}" title="${esc(ROLE_LBL[sess.role]||'')}">${ROLE_IC[sess.role]||'👤'}</span><span class="d-none d-sm-inline-block text-truncate" style="max-width:160px" title="${esc(sess.email)}">${esc(sess.name)}</span><span class="badge rounded-pill role" style="--c:${ROLE_COL[sess.role]}">${ROLE_LBL[sess.role]}</span>`},
  ph:(ic,t,sub,c,act)=>`<div class="ph d-flex align-items-center flex-wrap gap-3" style="--c:${c}"><span class="pi">${ic}</span><div><h2 class="mb-0">${t}</h2><p class="mb-0 text-secondary small">${sub}</p></div><div class="pa ms-auto d-flex flex-wrap gap-2">${act||''}</div></div>`,
 
  /* Bootstrap modal shell: returns the .modal element; el.close() hides it, it removes itself once hidden */
