@@ -85,7 +85,9 @@ test('the seeded super admin is a row in the Users tab, with a hashed password',
   assert.equal(rows.length, 1);
   assert.equal(rows[0].email, 'boss@tracker.com');
   assert.equal(rows[0].role, 'superadmin');
-  assert.match(rows[0].password, /^scrypt\$/);
+  /* On a spreadsheet the hash is written in the format the Apps Script backend can also read,
+     because both of them serve the same Users tab. scrypt is used everywhere else. */
+  assert.match(rows[0].password, /^sha256\$500\$/);
   assert.ok(!rows[0].password.includes('Boss@1234'), 'the typed password is never written down');
 
   tokens.superadmin = await login('boss@tracker.com', 'Boss@1234');
@@ -124,6 +126,19 @@ test('the super admin creates one account per role, each as a sheet row', async 
   tokens.admin = await login('amina@example.com', 'adminpw');
   tokens.superuser = await login('sohel@example.com', 'superpw');
   tokens.viewer = await login('vik@example.com', 'viewerpw');
+});
+
+test('an account created here can also sign in through the Apps Script backend', async () => {
+  /* The same spreadsheet is served by both, so a row written by one has to be usable by the
+     other. This runs the genuine Code.gs against the row this server actually wrote. */
+  const { load } = require(require('node:path')
+    .resolve(__dirname, '../../google-apps-script/test/harness.js'));
+  const { sandbox } = load();
+
+  const row = google.rowsOf('Users').find(r => r.email === 'amina@example.com');
+  assert.ok(row, 'the account should be in the Users tab');
+  assert.equal(sandbox.verifyPassword_('adminpw', row.password), true);
+  assert.equal(sandbox.verifyPassword_('not the password', row.password), false);
 });
 
 /* ---------------------------------------------------------------- items in the sheet */

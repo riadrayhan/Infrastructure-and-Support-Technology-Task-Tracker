@@ -376,10 +376,14 @@ const Presenter={
   this.bindEvents();View.who(null,false);this.go('overview');
 
   /* 1. a backend wins when one answers: shared data and server-enforced roles.
-        Either a Google Sheet (window.GAS_URL) or the Node.js server at /api/health. */
+        The Node.js server at /api/health is asked first, then a Google Sheet (window.GAS_URL).
+        Both keep their rows in the same spreadsheet, so this is a choice of route, not of data:
+        the server answers in milliseconds where Apps Script takes seconds, and it can hold a
+        socket open where it is not running serverless. When it is not configured it says so
+        plainly and the page carries on to the sheet, which is what happens today. */
   let store=null,health=null,gasFailed=null;
-  if(window.GAS_URL&&typeof GasStore!=='undefined'){const g=new GasStore();health=await g.probe();if(health)store=g;else gasFailed=g.lastError}
-  if(!store&&typeof ApiStore!=='undefined'){health=await ApiStore.probe();if(health)store=new ApiStore()}
+  if(typeof ApiStore!=='undefined'){health=await ApiStore.probe();if(health)store=new ApiStore()}
+  if(!store&&window.GAS_URL&&typeof GasStore!=='undefined'){const g=new GasStore();health=await g.probe();if(health)store=g;else gasFailed=g.lastError}
   /* A configured Google Sheet that does not answer is a mistake worth showing, not hiding:
      without this the page would quietly fall back to this browser's own storage. */
   if(!store&&gasFailed){console.error('Google Sheets backend unavailable:',gasFailed);

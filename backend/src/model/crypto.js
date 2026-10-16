@@ -20,8 +20,39 @@ function hashPassword(password, params = PARAMS) {
   return `scrypt$${params.N}$${params.r}$${params.p}$${salt.toString('base64')}$${key.toString('base64')}`;
 }
 
+/*
+ * The Apps Script backend writes into the same spreadsheet, and it cannot run scrypt: Apps
+ * Script has no such primitive, and a memory-hard hash is not something to reimplement there.
+ * So it uses repeated SHA-256 with a salt, and this is the same calculation, byte for byte.
+ *
+ * It matters because the two backends share a Users tab. Without this, every account created
+ * through the spreadsheet would be refused here - the hash would simply be in a format this
+ * file did not recognise - and pointing the server at a working sheet would lock everyone out.
+ */
+const SHEETS_ROUNDS = 500;
+
+function hashPasswordSheets(password, salt, rounds = SHEETS_ROUNDS) {
+  const withSalt = salt || crypto.randomBytes(12).toString('base64url');
+  let digest = crypto.createHash('sha256')
+    .update(`tracker:${withSalt}:${password}`, 'utf8').digest();
+  for (let i = 1; i < rounds; i++) digest = crypto.createHash('sha256').update(digest).digest();
+  return `sha256$${rounds}$${withSalt}$${digest.toString('hex')}`;
+}
+
+function verifySheetsPassword(password, stored) {
+  const parts = String(stored).split('$');
+  if (parts.length !== 4 || parts[0] !== 'sha256') return false;
+  const rounds = Number(parts[1]);
+  if (!rounds) return false;
+  const actual = Buffer.from(hashPasswordSheets(String(password), parts[2], rounds), 'utf8');
+  const expected = Buffer.from(String(stored), 'utf8');
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
 function verifyPassword(password, stored) {
-  if (typeof stored !== 'string' || !stored.startsWith('scrypt$')) return false;
+  if (typeof stored !== 'string') return false;
+  if (stored.startsWith('sha256$')) return verifySheetsPassword(password, stored);
+  if (!stored.startsWith('scrypt$')) return false;
   const parts = stored.split('$');
   if (parts.length !== 6) return false;
   const N = Number(parts[1]), r = Number(parts[2]), p = Number(parts[3]);
@@ -58,4 +89,4 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(x, y);
 }
 
-module.exports = { hashPassword, verifyPassword, randomToken, sha256, safeEqual, PARAMS };
+module.exports = { hashPassword, hashPasswordSheets, verifyPassword, randomToken, sha256, safeEqual, PARAMS };

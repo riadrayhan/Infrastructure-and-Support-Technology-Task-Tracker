@@ -4,7 +4,7 @@
    A password hash never leaves this module: publicUser() strips it. */
 
 const store = require('./store');
-const { hashPassword } = require('./crypto');
+const { hashPassword, hashPasswordSheets } = require('./crypto');
 const { ROLES } = require('./permissions');
 const { badRequest, conflict, notFound } = require('../view/http');
 
@@ -73,12 +73,23 @@ function validate({ email, name, role, password }, { requirePassword = true } = 
   return { email: e, name: n, role };
 }
 
+/**
+ * Hash a password in whichever format the storage can be read with.
+ *
+ * scrypt is the stronger hash and what this server uses by default. But a spreadsheet is also
+ * read by the Apps Script backend, which has no scrypt and never will, so an account created
+ * here with one would be unusable there. On a sheet, both must be able to read it.
+ */
+function hashFor(password) {
+  return store.get().kind === 'sheets' ? hashPasswordSheets(password) : hashPassword(password);
+}
+
 async function create({ email, name, role, password, externalId, createdBy }) {
   const clean = validate({ email, name, role, password });
   if (await rawByEmail(clean.email)) throw conflict('This email already has an account');
   await store.get().insert('users', {
     email: clean.email, name: clean.name, role: clean.role,
-    password: hashPassword(password), externalId: externalId || '',
+    password: hashFor(password), externalId: externalId || '',
     createdAt: store.nowIso(), createdBy: createdBy || '', updatedAt: '', lastLogin: '',
   });
   return byEmail(clean.email);
@@ -106,7 +117,7 @@ async function update(email, patch = {}) {
   if (patch.password !== undefined) {
     const p = String(patch.password);
     if (p.length < 4) throw badRequest('The password must be at least 4 characters', 'bad_password');
-    changes.password = hashPassword(p);
+    changes.password = hashFor(p);
   }
   if (patch.externalId !== undefined) changes.externalId = patch.externalId || '';
   if (!Object.keys(changes).length) return publicUser(current);
