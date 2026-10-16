@@ -160,6 +160,17 @@ tr.c td{transition:background .15s}
 .btn{position:relative;overflow:hidden}
 .ripple{position:absolute;border-radius:50%;background:#ffffff66;transform:scale(0);animation:rip .6s ease-out forwards;pointer-events:none}
 .btn-outline-secondary .ripple,.btn-outline-danger .ripple{background:color-mix(in srgb,var(--ac) 22%,transparent)}
+
+/* ---- the sign-in button ----
+   It wears the header's own colour and holds still: the gradient does not drift, there is no
+   sheen, no lift and no ripple. On a page that is nothing but this one button, it should read
+   as part of the header rather than as something trying to catch the eye. */
+#g_btn{background:var(--g-hero);background-size:100% 100%;animation:none;transition:none;
+  box-shadow:0 6px 16px var(--hero-sh)}
+#g_btn:after{content:none}
+#g_btn:hover{transform:none;filter:brightness(1.05)}
+#g_btn:active{transform:none}
+#g_btn .ripple{display:none}
 @keyframes rip{to{transform:scale(4);opacity:0}}
 /* ---- toasts slide up, nav pill pops, skeleton shimmer ---- */
 @keyframes toastIn{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:none}}
