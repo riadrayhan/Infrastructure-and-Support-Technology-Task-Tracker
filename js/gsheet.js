@@ -66,6 +66,9 @@
       this.token = readToken();
       this.session = null;
       this.pollMs = 12000;            // Apps Script is slower than a local server, so poll gently
+      /* A chat round here already takes several seconds, so the pause after one is short:
+         the request is the wait. */
+      this.chatPollMs = 2500;
       this.timer = null;
       this.onAuthLost = function () {};
       this.onNotice = function () {};

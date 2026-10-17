@@ -262,11 +262,14 @@ const View={
   const note=$('#c_note'),badge=$('#c_state');
   const ready=Boolean(live&&live.available),connected=Boolean(live&&live.connected);
   if(badge){
-   /* Three honest states: a live socket, working through ordinary requests, or nothing yet. */
-   badge.textContent=connected?'● Live':(ready?'↻ Syncing':'○ Offline');
-   badge.classList.toggle('on',connected);
+   /* Three honest states: a live socket, working through ordinary requests, or nothing yet.
+      The middle one used to read "Syncing", which never changed and so looked like something
+      stuck halfway. It is not halfway: chat is on and working, just a few seconds behind. */
+   badge.textContent=connected?'● Live':(ready?'● On · a few seconds':'○ Offline');
+   badge.classList.toggle('on',ready);
    badge.title=connected?'Messages arrive instantly'
-    :(ready?'No socket here, so messages arrive within a few seconds':'Chat server not running');
+    :(ready?'There is no socket on this backend, so messages arrive within a few seconds'
+      :'Chat server not running');
   }
   if(note){
    note.hidden=ready;

@@ -64,7 +64,7 @@
     }
 
     stop() {
-      if (this.poll) { clearInterval(this.poll); this.poll = null; }
+      if (this.poll) { clearTimeout(this.poll); this.poll = null; }
       if (this.socket) { try { this.socket.close(); } catch (e) {} this.socket = null; }
       this.connected = false;
       this.available = false;
@@ -116,15 +116,43 @@
       return socket;
     }
 
-    /** Without a socket, catch up every few seconds instead. */
+    /**
+     * Without a socket, catch up every few seconds instead.
+     *
+     * The wait is between rounds, not between starts. setInterval fired every seven seconds
+     * whether or not the last round had finished, and against a spreadsheet backend - where a
+     * single request takes three to five seconds and a round makes two - the rounds landed on
+     * top of each other. Requests queued, answers came back out of order, and the chat felt
+     * stuck precisely when it was working hardest.
+     *
+     * With a conversation open, that conversation is read every round and the contact list
+     * every other one. The list only carries unread counts for other people, so halving it
+     * halves how long a message takes to appear in the conversation being watched.
+     */
     startPolling() {
       if (this.poll) return;
-      this.poll = setInterval(async () => {
-        if (document.hidden || !this.available) return;
-        if (this.connected) { await this.refreshContacts(); return; }   // sockets carry the messages
-        await this.refreshContacts();
-        if (this.openWith) await this.openConversation(this.openWith, { quiet: true });
-      }, 7000);
+      const gap = Number(this.store && this.store.chatPollMs) || 7000;
+      let round = 0;
+
+      const tick = async () => {
+        if (!this.available) return;                 // stopped while we were waiting
+        if (!document.hidden) {
+          round += 1;
+          try {
+            if (this.connected) {
+              await this.refreshContacts();          // the socket carries the messages
+            } else if (this.openWith) {
+              await this.openConversation(this.openWith, { quiet: true });
+              if (round % 2 === 0) await this.refreshContacts();
+            } else {
+              await this.refreshContacts();
+            }
+          } catch (e) { /* a dropped round is not worth reporting; the next one tries again */ }
+        }
+        if (this.available) this.poll = setTimeout(tick, gap);
+      };
+
+      this.poll = setTimeout(tick, gap);
     }
 
     /* ---------- contacts and conversations ---------- */
