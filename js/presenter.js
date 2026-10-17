@@ -69,10 +69,48 @@ const Presenter={
  xsec(title,list,color){return{title,columns:this.XCOLS,rows:list.map(p=>this.xrow(p)),color}},
  xhex(h){return[1,3,5].map(i=>parseInt(h.slice(i,i+2),16))},
  xstatus(list){const by=ST.filter(s=>list.some(p=>p.s===s));return by.map(s=>this.xsec(s,list.filter(p=>p.s===s),this.xhex(COL[s])))},
+ /* The dashboard's own charts, described rather than drawn, so the PDF and the printed page
+    can redraw the very same figures instead of carrying a screenshot of the screen. */
+ xvisuals(){
+  const I=Model.items,A=Model.all(),c={};
+  I.forEach(p=>c[p.s]=(c[p.s]||0)+1);
+  const overdue=I.filter(over);
+
+  const kpis={kind:'kpis',items:[{label:'Total',value:I.length,color:'#4f46e5'},
+   ...ST.map(s=>({label:s,value:c[s]||0,color:COL[s]})),
+   {label:'Overdue',value:overdue.length,color:'#dc2626'}]};
+
+  const slices=list=>PS.map(s=>({label:s,value:list.filter(p=>p.s===s).length,color:COL[s]}));
+  const pies={kind:'pies',title:'Status mix',charts:[
+   {title:'Projects',list:I.filter(p=>p.type==='Project')},
+   {title:'Recurring',list:I.filter(p=>p.type==='Drive')},
+   {title:'Tasks',list:A.filter(p=>p.type==='Task')},
+  ].map(x=>({title:x.title,total:x.list.length,slices:slices(x.list)}))};
+
+  /* Active workload by Focal-1, the stacked bars on the dashboard. */
+  const states=['Ongoing','On Hold','Listed'],W={};
+  I.forEach(p=>{const n=base(p.f1);if(!n||states.indexOf(p.s)===-1)return;
+   W[n]=W[n]||{Ongoing:0,'On Hold':0,Listed:0};W[n][p.s]++});
+  const workload={kind:'bars',title:'Active workload by Focal-1',
+   legend:states.map(s=>({label:s,color:COL[s]})),
+   rows:Object.keys(W).map(n=>({label:n,total:states.reduce((a,s)=>a+W[n][s],0),
+     parts:states.map(s=>({value:W[n][s],color:COL[s]}))}))
+    .filter(r=>r.total).sort((a,b)=>b.total-a.total)};
+
+  const ongoing=I.filter(p=>p.s==='Ongoing').sort((a,b)=>(a.e||'9')<(b.e||'9')?-1:1);
+  const progress={kind:'progress',title:'Ongoing – progress',color:'#2563eb',
+   rows:ongoing.slice(0,14).map(p=>{const g=pct(p);
+    return{label:`${p.id} · ${p.title}`,value:g==null?0:g,
+      note:(g==null?'no milestones':g+'% complete')+(p.e?' · due '+fd(p.e):''),over:over(p)}})};
+
+  return[kpis,pies,workload,progress].filter(v=>v.kind!=='bars'||v.rows.length);
+ },
+
  exportDoc(){const t=this.tab,day=today10(),base='Tracker';
   if(t==='overview'){const I=Model.items,A=Model.all();
    const sum={title:'Summary',columns:['Type',...ST,'Total'],rows:TY.map(ty=>{const L=(ty==='Task'?A:I).filter(p=>p.type===ty);return[LBLS[ty],...ST.map(s=>L.filter(p=>p.s===s).length),L.length]})};
    return{title:'Task and Project Tracker · All data',subtitle:`${I.filter(p=>p.type!=='Task').length+A.filter(p=>p.type==='Task').length} items`,file:`${base}-All-${day}`,
+    visuals:this.xvisuals(),
     sections:[sum,this.xsec('Projects',I.filter(p=>p.type==='Project'),[79,70,229]),this.xsec('Recurring',I.filter(p=>p.type==='Drive'),[8,145,178]),this.xsec('Tasks',A.filter(p=>p.type==='Task'),[234,88,12])]}}
   const bt=this.PT[t];
   if(bt){const F=this.F,L=this.boardList(bt),st=F.st?(F.st==='__over'?'Overdue':F.st):'';
